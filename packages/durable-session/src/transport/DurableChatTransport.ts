@@ -115,7 +115,7 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 											controller.enqueue({
 												type: "text-delta",
 												id,
-												delta: part.text ?? part.content,
+												delta: part.text,
 											} as UIMessageChunk);
 											controller.enqueue({
 												type: "text-end",

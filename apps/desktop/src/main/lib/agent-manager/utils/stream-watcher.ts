@@ -29,35 +29,9 @@ export class StreamWatcher {
 			headers: { Authorization: `Bearer ${options.authToken}` },
 		});
 
-		this.host.on("connected", () => {
-			console.log(
-				`[stream-watcher] SessionHost connected for ${this.sessionId}`,
-			);
-		});
-
-		this.host.on("config", (config) => {
-			console.log(
-				`[stream-watcher] Config event for ${this.sessionId}:`,
-				config,
-			);
-		});
-
 		this.host.on("message", ({ messageId, message }) => {
-			console.log(
-				`[stream-watcher] Received "message" event: ${messageId}`,
-				JSON.stringify(message).slice(0, 200),
-			);
 			const text = extractTextFromMessage(message);
-			if (!text.trim()) {
-				console.log(
-					`[stream-watcher] Empty text extracted, skipping`,
-				);
-				return;
-			}
-
-			console.log(
-				`[stream-watcher] New user message in ${this.sessionId}: "${text.slice(0, 50)}"`,
-			);
+			if (!text.trim()) return;
 
 			void runAgent({
 				sessionId: options.sessionId,
@@ -97,13 +71,7 @@ export class StreamWatcher {
 		});
 
 		this.host.on("abort", () => {
-			const controller = sessionAbortControllers.get(options.sessionId);
-			if (controller) {
-				console.log(
-					`[stream-watcher] Aborting agent for session ${options.sessionId}`,
-				);
-				controller.abort();
-			}
+			sessionAbortControllers.get(options.sessionId)?.abort();
 		});
 
 		this.host.on("error", (err) => {

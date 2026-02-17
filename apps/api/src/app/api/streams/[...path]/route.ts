@@ -372,7 +372,7 @@ async function handleSendMessage(
 	const message = {
 		id: messageId,
 		role: "user" as const,
-		parts: [{ type: "text" as const, content: body.content }],
+		parts: [{ type: "text" as const, text: body.content }],
 		createdAt: new Date().toISOString(),
 	};
 
@@ -562,22 +562,41 @@ async function handleProducerWrite(
 ): Promise<Response> {
 	const upstream = streamUrl(sessionId);
 
-	// Forward producer protocol headers + body to durable streams service
 	const headers: Record<string, string> = {
 		Authorization: `Bearer ${env.DURABLE_STREAMS_SECRET}`,
 		"Content-Type": request.headers.get("content-type") ?? "application/json",
 	};
-	for (const h of ["producer-id", "producer-epoch", "producer-seq"]) {
+	for (const h of [
+		"producer-id",
+		"producer-epoch",
+		"producer-seq",
+		"stream-closed",
+	]) {
 		const v = request.headers.get(h);
 		if (v) headers[h] = v;
 	}
 
+	const body = await request.arrayBuffer();
+
+	console.log(`[proxy] Producer write → ${upstream}`, {
+		bodyLen: body.byteLength,
+		headers: Object.fromEntries(
+			Object.entries(headers).filter(([k]) => k !== "Authorization"),
+		),
+	});
+
 	const response = await fetch(upstream, {
 		method: "POST",
 		headers,
-		body: request.body,
-		// @ts-expect-error — duplex required for streaming body
-		duplex: "half",
+		body,
+	});
+
+	const respBody = await response.arrayBuffer();
+
+	console.log(`[proxy] Producer response: ${response.status}`, {
+		headers: Object.fromEntries(response.headers.entries()),
+		bodyLen: respBody.byteLength,
+		bodyPreview: new TextDecoder().decode(respBody.slice(0, 500)),
 	});
 
 	const respHeaders = new Headers();
@@ -586,7 +605,7 @@ async function handleProducerWrite(
 		if (v) respHeaders.set(h, v);
 	}
 
-	return new Response(response.body, {
+	return new Response(respBody, {
 		status: response.status,
 		headers: respHeaders,
 	});

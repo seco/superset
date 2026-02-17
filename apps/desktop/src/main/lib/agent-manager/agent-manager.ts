@@ -71,35 +71,11 @@ export class AgentManager {
 			`[agent-manager] Starting for org=${this.organizationId} device=${this.deviceId}`,
 		);
 
-		// Subscribe to session_hosts via Electric ShapeStream
 		const shapeUrl = `${electricUrl}/v1/shape`;
 		const shapeParams = {
 			table: "session_hosts",
 			organizationId: this.organizationId,
 		};
-		console.log(
-			`[agent-manager] Connecting to Electric: ${shapeUrl}`,
-			shapeParams,
-		);
-		console.log(
-			`[agent-manager] Auth token present: ${!!this.authToken} (len=${this.authToken?.length ?? 0})`,
-		);
-
-		// Diagnostic: test the Electric proxy directly before creating ShapeStream
-		try {
-			const testUrl = `${shapeUrl}?table=session_hosts&organizationId=${this.organizationId}&offset=-1`;
-			const testRes = await fetch(testUrl, {
-				headers: this.authToken
-					? { Authorization: `Bearer ${this.authToken}` }
-					: {},
-			});
-			const testBody = await testRes.text();
-			console.log(
-				`[agent-manager] Electric probe: status=${testRes.status} body=${testBody.slice(0, 500)}`,
-			);
-		} catch (err) {
-			console.error("[agent-manager] Electric probe failed:", err);
-		}
 
 		this.shapeStream = new ShapeStream({
 			url: shapeUrl,
@@ -110,11 +86,7 @@ export class AgentManager {
 		});
 
 		this.shapeStream.subscribe(
-			(messages) => {
-				console.log(
-					`[agent-manager] ShapeStream raw messages: ${messages.length}`,
-				);
-			},
+			() => {},
 			(error) => {
 				console.error("[agent-manager] ShapeStream error:", error);
 			},
@@ -122,31 +94,17 @@ export class AgentManager {
 
 		this.shape = new Shape(this.shapeStream);
 
-		// Wait for initial data then process
-		console.log("[agent-manager] Waiting for initial shape.rows...");
 		const initialRows = await this.shape.rows;
-		console.log(
-			`[agent-manager] Initial session_hosts rows: ${initialRows.length}`,
-		);
 		for (const row of initialRows) {
-			console.log(
-				`[agent-manager] Row: device_id=${row.device_id} session_id=${row.session_id} (match=${row.device_id === this.deviceId})`,
-			);
 			if (row.device_id === this.deviceId) {
 				this.startWatcher(row.session_id as string);
 			}
 		}
 
 		this.unsubscribe = this.shape.subscribe(({ rows }) => {
-			console.log(
-				`[agent-manager] Electric subscription fired — ${rows.length} total rows`,
-			);
 			const activeSessionIds = new Set<string>();
 
 			for (const row of rows) {
-				console.log(
-					`[agent-manager] Row: device_id=${row.device_id} session_id=${row.session_id} (match=${row.device_id === this.deviceId})`,
-				);
 				if (row.device_id === this.deviceId) {
 					const sessionId = row.session_id as string;
 					activeSessionIds.add(sessionId);
@@ -157,12 +115,8 @@ export class AgentManager {
 				}
 			}
 
-			// Stop watchers for sessions no longer assigned to this device
 			for (const [sessionId, watcher] of this.watchers) {
 				if (!activeSessionIds.has(sessionId)) {
-					console.log(
-						`[agent-manager] Session ${sessionId} no longer assigned to this device`,
-					);
 					watcher.stop();
 					this.cleanupSession(sessionId);
 					this.watchers.delete(sessionId);
@@ -170,16 +124,10 @@ export class AgentManager {
 			}
 		});
 
-		console.log(
-			`[agent-manager] Started — watching ${this.watchers.size} sessions`,
-		);
+		this.logActiveSessions();
 	}
 
 	private startWatcher(sessionId: string): void {
-		console.log(
-			`[agent-manager] Creating StreamWatcher for session ${sessionId}`,
-		);
-
 		const watcher = new StreamWatcher({
 			sessionId,
 			authToken: this.authToken,
@@ -187,6 +135,7 @@ export class AgentManager {
 
 		watcher.start();
 		this.watchers.set(sessionId, watcher);
+		this.logActiveSessions();
 	}
 
 	private cleanupSession(sessionId: string): void {
@@ -197,8 +146,14 @@ export class AgentManager {
 		sessionContext.delete(sessionId);
 	}
 
+	private logActiveSessions(): void {
+		const ids = [...this.watchers.keys()];
+		console.log(
+			`[agent-manager] Active sessions (${ids.length}): ${ids.join(", ") || "none"}`,
+		);
+	}
+
 	stop(): void {
-		console.log("[agent-manager] Stopping all watchers...");
 
 		this.unsubscribe?.();
 		this.unsubscribe = null;
@@ -211,8 +166,7 @@ export class AgentManager {
 
 		this.shape = null;
 		this.shapeStream = null;
-
-		console.log("[agent-manager] Stopped");
+		this.logActiveSessions();
 	}
 
 	/** Restart with a new org (e.g. on org switch). */

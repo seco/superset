@@ -46,14 +46,6 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 		thinkingEnabled,
 	} = options;
 
-	console.log("[run-agent] Starting:", {
-		sessionId,
-		text: text.slice(0, 50),
-		modelId,
-		cwd,
-		permissionMode,
-	});
-
 	// Abort any existing agent for this session
 	const existingController = sessionAbortControllers.get(sessionId);
 	if (existingController) existingController.abort();
@@ -110,19 +102,11 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 				: {}),
 		});
 
-		console.log(`[run-agent] Mastra stream returned for ${sessionId}`, {
-			runId: output.runId,
-			hasStream: !!output,
-		});
-
 		if (output.runId) {
 			sessionRunIds.set(sessionId, output.runId);
 		}
 
 		await writeToDurableStream(output, host, abortController.signal);
-		console.log(
-			`[run-agent] Finished writing to durable stream for ${sessionId}`,
-		);
 	} catch (error) {
 		sessionRunIds.delete(sessionId);
 		sessionContext.delete(sessionId);

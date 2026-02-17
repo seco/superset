@@ -174,10 +174,6 @@ export class SessionHost {
 			this.applyConfig(latestConfig);
 		}
 
-		console.log(
-			`[SessionHost] Session ${this.sessionId} — seeded ${this.seenMessageIds.size} seen message IDs, chunks size: ${chunks.size}`,
-		);
-
 		// Subscribe to chunk changes (live updates via SSE)
 		const subscription = chunks.subscribeChanges(
 			(changes: Array<{ type: string; value: unknown }>) => {
@@ -197,8 +193,6 @@ export class SessionHost {
 
 		this.unsubscribe = () => subscription.unsubscribe();
 		this.emit("connected");
-
-		console.log(`[SessionHost] Started for session ${this.sessionId}`);
 	}
 
 	stop(): void {
@@ -211,7 +205,6 @@ export class SessionHost {
 			this.sessionDB = null;
 		}
 		this.emit("disconnected", { reason: "stopped" });
-		console.log(`[SessionHost] Stopped for session ${this.sessionId}`);
 	}
 
 	// -- Write methods --------------------------------------------------------
@@ -224,7 +217,17 @@ export class SessionHost {
 		const durableStream = new DurableStream({
 			url: `${this.baseUrl}/v1/stream/sessions/${this.sessionId}`,
 			headers: this.headers,
+			contentType: "application/json",
 		});
+
+		// IdempotentProducer doesn't forward DurableStream.headers on POSTs,
+		// so inject auth via a custom fetch wrapper.
+		const authHeaders = this.headers;
+		const authFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+			fetch(input, {
+				...init,
+				headers: { ...authHeaders, ...init?.headers },
+			})) as typeof fetch;
 
 		const producer = new IdempotentProducer(
 			durableStream,
@@ -234,6 +237,7 @@ export class SessionHost {
 				lingerMs: 5,
 				maxInFlight: 5,
 				signal: options?.signal,
+				fetch: authFetch,
 				onError: (err) => {
 					if (options?.signal?.aborted) return;
 					this.emit("error", err);
@@ -323,23 +327,10 @@ export class SessionHost {
 			parsed.message !== null
 		) {
 			const msg = parsed.message as Record<string, unknown>;
-			if (msg.role !== "user") {
-				console.log(
-					`[SessionHost] Skipping non-user message: role=${msg.role}`,
-				);
-				return;
-			}
-			if (this.seenMessageIds.has(row.messageId)) {
-				console.log(
-					`[SessionHost] Skipping already-seen message: ${row.messageId}`,
-				);
-				return;
-			}
+			if (msg.role !== "user") return;
+			if (this.seenMessageIds.has(row.messageId)) return;
 			this.seenMessageIds.add(row.messageId);
 
-			console.log(
-				`[SessionHost] Emitting "message" event for ${row.messageId}`,
-			);
 			this.emit("message", {
 				messageId: row.messageId,
 				message: parsed.message as UIMessage,
