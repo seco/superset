@@ -1,3 +1,4 @@
+import type { SlashCommand } from "@superset/durable-session/react";
 import {
 	PromptInput,
 	PromptInputButton,
@@ -10,7 +11,6 @@ import {
 import { ThinkingToggle } from "@superset/ui/ai-elements/thinking-toggle";
 import type React from "react";
 import { HiMiniPaperClip } from "react-icons/hi2";
-import type { SlashCommand } from "@superset/durable-session/react";
 import type { ModelOption, PermissionMode } from "../../types";
 import {
 	FileMentionAnchor,
@@ -68,7 +68,10 @@ export function ChatInputFooter({
 				)}
 				<PromptInputProvider>
 					<FileMentionProvider cwd={cwd}>
-						<SlashCommandInput onCommandSend={onSlashCommandSend} commands={slashCommands}>
+						<SlashCommandInput
+							onCommandSend={onSlashCommandSend}
+							commands={slashCommands}
+						>
 							<FileMentionAnchor>
 								<PromptInput onSubmit={onSend}>
 									<PromptInputTextarea placeholder="Ask anything..." />

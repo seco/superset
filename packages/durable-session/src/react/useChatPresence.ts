@@ -1,6 +1,6 @@
-import { useSyncExternalStore, useCallback } from "react";
+import { useCallback, useSyncExternalStore } from "react";
 import type { SessionDB } from "../collection";
-import type { RawPresenceRow, AgentValue } from "../schema";
+import type { AgentValue, RawPresenceRow } from "../schema";
 
 export interface ChatUserPresence {
 	userId: string;

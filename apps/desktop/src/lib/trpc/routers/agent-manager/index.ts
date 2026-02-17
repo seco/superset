@@ -1,7 +1,7 @@
-import { z } from "zod";
-import { getHashedDeviceId } from "main/lib/device-info";
-import { publicProcedure, router } from "../..";
 import { AgentManager } from "main/lib/agent-manager/agent-manager";
+import { getHashedDeviceId } from "main/lib/device-info";
+import { z } from "zod";
+import { publicProcedure, router } from "../..";
 
 let agentManager: AgentManager | null = null;
 
@@ -12,9 +12,7 @@ export const createAgentManagerRouter = () => {
 		 * Called by the renderer when auth is ready and the active org is known.
 		 */
 		start: publicProcedure
-			.input(
-				z.object({ organizationId: z.string(), authToken: z.string() }),
-			)
+			.input(z.object({ organizationId: z.string(), authToken: z.string() }))
 			.mutation(async ({ input }) => {
 				const deviceId = getHashedDeviceId();
 

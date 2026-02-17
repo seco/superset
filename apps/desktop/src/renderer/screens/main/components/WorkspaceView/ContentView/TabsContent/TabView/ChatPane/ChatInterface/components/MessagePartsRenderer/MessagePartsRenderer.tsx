@@ -53,9 +53,7 @@ export function MessagePartsRenderer({
 			}
 
 			if (part.type === "reasoning") {
-				nodes.push(
-					<ReasoningBlock key={i} reasoning={part.text} />,
-				);
+				nodes.push(<ReasoningBlock key={i} reasoning={part.text} />);
 				i++;
 				continue;
 			}
@@ -89,8 +87,7 @@ export function MessagePartsRenderer({
 
 					// Multiple consecutive read-only tools: group them
 					const anyPending = groupParts.some(
-						(p) =>
-							p.state !== "output-available" && p.state !== "output-error",
+						(p) => p.state !== "output-available" && p.state !== "output-error",
 					);
 					const exploringItems = groupParts.map((p) => {
 						const args = getArgs(p);
@@ -101,8 +98,7 @@ export function MessagePartsRenderer({
 						switch (name) {
 							case "mastra_workspace_read_file":
 								title =
-									p.state !== "output-available" &&
-									p.state !== "output-error"
+									p.state !== "output-available" && p.state !== "output-error"
 										? "Reading"
 										: "Read";
 								subtitle = String(args.path ?? args.filePath ?? "");
@@ -110,8 +106,7 @@ export function MessagePartsRenderer({
 								break;
 							case "mastra_workspace_list_files":
 								title =
-									p.state !== "output-available" &&
-									p.state !== "output-error"
+									p.state !== "output-available" && p.state !== "output-error"
 										? "Listing"
 										: "Listed";
 								subtitle = String(args.path ?? args.directory ?? "");
@@ -119,8 +114,7 @@ export function MessagePartsRenderer({
 								break;
 							case "mastra_workspace_file_stat":
 								title =
-									p.state !== "output-available" &&
-									p.state !== "output-error"
+									p.state !== "output-available" && p.state !== "output-error"
 										? "Checking"
 										: "Checked";
 								subtitle = String(args.path ?? "");
@@ -128,8 +122,7 @@ export function MessagePartsRenderer({
 								break;
 							case "mastra_workspace_search":
 								title =
-									p.state !== "output-available" &&
-									p.state !== "output-error"
+									p.state !== "output-available" && p.state !== "output-error"
 										? "Searching"
 										: "Searched";
 								subtitle = String(args.query ?? args.pattern ?? "");
@@ -137,8 +130,7 @@ export function MessagePartsRenderer({
 								break;
 							case "mastra_workspace_index":
 								title =
-									p.state !== "output-available" &&
-									p.state !== "output-error"
+									p.state !== "output-available" && p.state !== "output-error"
 										? "Indexing"
 										: "Indexed";
 								icon = SearchIcon;

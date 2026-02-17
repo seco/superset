@@ -1,16 +1,15 @@
 export {
-	useChatPresence,
-	type UseChatPresenceOptions,
-	type UseChatPresenceReturn,
-	type ChatUserPresence,
-	type ChatAgentPresence,
-} from "./useChatPresence";
-
-export {
-	useChatMetadata,
-	type UseChatMetadataOptions,
-	type UseChatMetadataReturn,
+	type ModelOption,
 	type SessionConfig,
 	type SlashCommand,
-	type ModelOption,
+	type UseChatMetadataOptions,
+	type UseChatMetadataReturn,
+	useChatMetadata,
 } from "./useChatMetadata";
+export {
+	type ChatAgentPresence,
+	type ChatUserPresence,
+	type UseChatPresenceOptions,
+	type UseChatPresenceReturn,
+	useChatPresence,
+} from "./useChatPresence";

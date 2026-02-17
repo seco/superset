@@ -8,7 +8,7 @@
  * On session deleted or device_id changed away: stops the StreamWatcher.
  */
 
-import { ShapeStream, Shape } from "@electric-sql/client";
+import { Shape, ShapeStream } from "@electric-sql/client";
 import { setAnthropicAuthToken } from "@superset/agent";
 import { env } from "main/env.main";
 import {
@@ -17,8 +17,8 @@ import {
 } from "./utils/anthropic/auth";
 import {
 	sessionAbortControllers,
-	sessionRunIds,
 	sessionContext,
+	sessionRunIds,
 } from "./utils/run-agent";
 import { StreamWatcher } from "./utils/stream-watcher";
 
@@ -183,11 +183,6 @@ export class AgentManager {
 		const watcher = new StreamWatcher({
 			sessionId,
 			authToken: this.authToken,
-			config: {
-				// Default config — will be overridden by config events from the stream
-				cwd: process.env.HOME || "/",
-				modelId: "anthropic/claude-sonnet-4-5",
-			},
 		});
 
 		watcher.start();

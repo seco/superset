@@ -1,8 +1,8 @@
 import { DurableStream } from "@durable-streams/client";
-import { sessionStateSchema } from "@superset/durable-session";
 import { auth } from "@superset/auth/server";
 import { db } from "@superset/db/client";
 import { chatSessions, sessionHosts } from "@superset/db/schema";
+import { sessionStateSchema } from "@superset/durable-session";
 import { eq } from "drizzle-orm";
 import { env } from "@/env";
 
@@ -242,6 +242,16 @@ export async function POST(request: Request): Promise<Response> {
 		return handleConfig(request, segments[2], session.user.id);
 	}
 
+	// Producer writes (IdempotentProducer → durable stream via proxy)
+	if (
+		segments[0] === "v1" &&
+		segments[1] === "stream" &&
+		segments[2] === "sessions" &&
+		segments[3]
+	) {
+		return handleProducerWrite(request, segments[3]);
+	}
+
 	return new Response("Not found", { status: 404 });
 }
 
@@ -402,10 +412,7 @@ async function handleToolResult(
 	};
 
 	if (!body.toolCallId) {
-		return Response.json(
-			{ error: "toolCallId is required" },
-			{ status: 400 },
-		);
+		return Response.json({ error: "toolCallId is required" }, { status: 400 });
 	}
 
 	const messageId = body.messageId ?? crypto.randomUUID();
@@ -539,4 +546,48 @@ async function handleConfig(
 	await appendToStream(sessionId, JSON.stringify(event));
 
 	return Response.json({ success: true }, { status: 200 });
+}
+
+const PRODUCER_RESPONSE_HEADERS = [
+	"stream-next-offset",
+	"stream-closed",
+	"producer-received-seq",
+	"producer-expected-seq",
+	"content-type",
+];
+
+async function handleProducerWrite(
+	request: Request,
+	sessionId: string,
+): Promise<Response> {
+	const upstream = streamUrl(sessionId);
+
+	// Forward producer protocol headers + body to durable streams service
+	const headers: Record<string, string> = {
+		Authorization: `Bearer ${env.DURABLE_STREAMS_SECRET}`,
+		"Content-Type": request.headers.get("content-type") ?? "application/json",
+	};
+	for (const h of ["producer-id", "producer-epoch", "producer-seq"]) {
+		const v = request.headers.get(h);
+		if (v) headers[h] = v;
+	}
+
+	const response = await fetch(upstream, {
+		method: "POST",
+		headers,
+		body: request.body,
+		// @ts-expect-error — duplex required for streaming body
+		duplex: "half",
+	});
+
+	const respHeaders = new Headers();
+	for (const h of PRODUCER_RESPONSE_HEADERS) {
+		const v = response.headers.get(h);
+		if (v) respHeaders.set(h, v);
+	}
+
+	return new Response(response.body, {
+		status: response.status,
+		headers: respHeaders,
+	});
 }

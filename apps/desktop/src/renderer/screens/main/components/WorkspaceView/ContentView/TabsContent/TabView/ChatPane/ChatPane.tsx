@@ -1,8 +1,8 @@
 import { useCallback } from "react";
 import type { MosaicBranch } from "react-mosaic-component";
-import { electronTrpc } from "renderer/lib/electron-trpc";
-import { authClient, getAuthToken } from "renderer/lib/auth-client";
 import { env } from "renderer/env.renderer";
+import { authClient, getAuthToken } from "renderer/lib/auth-client";
+import { electronTrpc } from "renderer/lib/electron-trpc";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import { BasePaneWindow, PaneToolbarActions } from "../components";
 import { ChatInterface } from "./ChatInterface";
@@ -65,13 +65,10 @@ export function ChatPane({
 	const handleDeleteSession = useCallback(
 		(sessionIdToDelete: string) => {
 			const token = getAuthToken();
-			fetch(
-				`${apiUrl}/api/streams/v1/stream/sessions/${sessionIdToDelete}`,
-				{
-					method: "DELETE",
-					headers: token ? { Authorization: `Bearer ${token}` } : {},
-				},
-			).catch(console.error);
+			fetch(`${apiUrl}/api/streams/v1/stream/sessions/${sessionIdToDelete}`, {
+				method: "DELETE",
+				headers: token ? { Authorization: `Bearer ${token}` } : {},
+			}).catch(console.error);
 
 			if (sessionIdToDelete === sessionId) {
 				switchChatSession(paneId, null);

@@ -1,277 +1,115 @@
-import { createSessionDB, type SessionDB } from "@superset/durable-session";
-import type { ChunkRow } from "@superset/durable-session";
+import { SessionHost } from "@superset/durable-session";
+import type { UIMessage } from "ai";
 import { env } from "main/env.main";
 import { getAvailableModels } from "./models";
 import {
-	runAgent,
 	resumeAgent,
+	runAgent,
 	sessionAbortControllers,
 	sessionRunIds,
-	type RunAgentOptions,
 } from "./run-agent";
-
-export interface SessionConfig {
-	cwd: string;
-	modelId: string;
-	permissionMode?: string;
-	thinkingEnabled?: boolean;
-}
 
 /**
  * StreamWatcher monitors a durable stream session for new user messages
  * from any client (web, desktop, mobile) and triggers the agent automatically.
  *
- * It also detects tool result / approval / control / config chunks flowing
- * back from clients and handles them accordingly.
+ * Delegates all stream protocol details to SessionHost — this file is a thin
+ * wrapper that wires typed events to agent lifecycle functions.
  */
 export class StreamWatcher {
-	private sessionDB: SessionDB | null = null;
-	private config: SessionConfig;
+	private host: SessionHost;
 	private readonly sessionId: string;
-	private readonly seenMessageIds = new Set<string>();
-	private unsubscribe: (() => void) | null = null;
-	private abortController: AbortController;
 
-	private readonly authToken: string;
-
-	constructor(options: {
-		sessionId: string;
-		config: SessionConfig;
-		authToken: string;
-	}) {
+	constructor(options: { sessionId: string; authToken: string }) {
 		this.sessionId = options.sessionId;
-		this.config = options.config;
-		this.authToken = options.authToken;
-		this.abortController = new AbortController();
-	}
 
-	start(): void {
-		const apiUrl = env.NEXT_PUBLIC_API_URL;
-		if (!apiUrl) {
-			console.error("[stream-watcher] No API URL configured");
-			return;
-		}
-
-		this.sessionDB = createSessionDB({
-			sessionId: this.sessionId,
-			baseUrl: `${apiUrl}/api/streams`,
-			headers: { Authorization: `Bearer ${this.authToken}` },
-			signal: this.abortController.signal,
+		this.host = new SessionHost({
+			sessionId: options.sessionId,
+			baseUrl: `${env.NEXT_PUBLIC_API_URL}/api/streams`,
+			headers: { Authorization: `Bearer ${options.authToken}` },
 		});
 
-		// Seed seenMessageIds from existing chunks so we don't re-trigger on history.
-		// Also replay the latest config event to initialize config from stream.
-		const chunks = this.sessionDB.collections.chunks;
-		console.log(
-			`[stream-watcher] Session ${this.sessionId} — chunks collection exists: ${!!chunks}, size: ${chunks?.size ?? 0}`,
-		);
-		let latestConfig: Record<string, unknown> | null = null;
-
-		for (const row of chunks.values()) {
-			const chunkRow = row as ChunkRow;
-			try {
-				const parsed = JSON.parse(chunkRow.chunk);
-				if (parsed.type === "whole-message" && parsed.message?.role === "user") {
-					this.seenMessageIds.add(chunkRow.messageId);
-				}
-				if (parsed.type === "config") {
-					latestConfig = parsed;
-				}
-			} catch {
-				// skip unparseable
-			}
-		}
-
-		// Apply latest config from stream history
-		if (latestConfig) {
-			this.applyConfig(latestConfig);
-		}
-
-		// Subscribe to chunk changes
-		const subscription = chunks.subscribeChanges((changes) => {
-			console.log(
-				`[stream-watcher] Session ${this.sessionId} — ${changes.length} chunk changes`,
-			);
-			for (const change of changes) {
-				console.log(
-					`[stream-watcher] Change: type=${change.type}`,
-				);
-				if (change.type !== "insert" && change.type !== "update") continue;
-				const row = change.value as ChunkRow;
-
-				try {
-					const parsed = JSON.parse(row.chunk);
-					console.log(
-						`[stream-watcher] Parsed chunk: type=${parsed.type} messageId=${row.messageId} role=${row.role}`,
-					);
-					this.handleChunk(parsed, row);
-				} catch {
-					// skip unparseable
-				}
-			}
-		});
-
-		this.unsubscribe = () => subscription.unsubscribe();
-
-		// Write available models to the stream so clients can display them
-		void this.writeInitialConfig(apiUrl);
-
-		console.log(
-			`[stream-watcher] Started watching session ${this.sessionId}`,
-		);
-	}
-
-	private async writeInitialConfig(apiUrl: string): Promise<void> {
-		try {
-			await fetch(
-				`${apiUrl}/api/streams/v1/sessions/${this.sessionId}/config`,
-				{
-					method: "POST",
-					headers: {
-						"Content-Type": "application/json",
-						Authorization: `Bearer ${this.authToken}`,
-					},
-					body: JSON.stringify({
-						availableModels: getAvailableModels(),
-					}),
-				},
-			);
-		} catch (err) {
-			console.error(
-				`[stream-watcher] Failed to write initial config for ${this.sessionId}:`,
-				err,
-			);
-		}
-	}
-
-	private handleChunk(
-		parsed: Record<string, unknown>,
-		row: ChunkRow,
-	): void {
-		// --- User message: trigger agent ---
-		if (
-			parsed.type === "whole-message" &&
-			typeof parsed.message === "object" &&
-			parsed.message !== null
-		) {
-			const msg = parsed.message as Record<string, unknown>;
-			if (msg.role !== "user") return;
-			if (this.seenMessageIds.has(row.messageId)) return;
-			this.seenMessageIds.add(row.messageId);
-
-			// Extract text content from message parts
-			const parts = Array.isArray(msg.parts) ? msg.parts : [];
-			const text = parts
-				.filter(
-					(p: unknown): p is { type: string; text: string } =>
-						typeof p === "object" &&
-						p !== null &&
-						(p as Record<string, unknown>).type === "text",
-				)
-				.map((p) => p.text)
-				.join("\n");
-
+		this.host.on("message", ({ messageId, message }) => {
+			const text = extractTextFromMessage(message);
 			if (!text.trim()) return;
 
 			console.log(
 				`[stream-watcher] New user message in ${this.sessionId}: "${text.slice(0, 50)}"`,
 			);
 
-			const agentOpts: RunAgentOptions = {
-				sessionId: this.sessionId,
+			void runAgent({
+				sessionId: options.sessionId,
 				text,
-				modelId: this.config.modelId,
-				cwd: this.config.cwd,
-				permissionMode: this.config.permissionMode,
-				thinkingEnabled: this.config.thinkingEnabled,
-			};
-
-			// Fire and forget — runAgent manages its own lifecycle
-			void runAgent(agentOpts);
-		}
-
-		// --- Tool result: resume agent ---
-		if (parsed.type === "tool-result") {
-			const runId = sessionRunIds.get(this.sessionId);
-			if (!runId) return;
-
-			const result = parsed as Record<string, unknown>;
-			const answers =
-				typeof result.answers === "object" && result.answers !== null
-					? (result.answers as Record<string, string>)
-					: undefined;
-
-			void resumeAgent({
-				sessionId: this.sessionId,
-				runId,
-				approved: true,
-				answers,
+				host: this.host,
+				modelId: this.host.config.model ?? "anthropic/claude-sonnet-4-5",
+				cwd: this.host.config.cwd ?? process.env.HOME ?? "/",
+				permissionMode: this.host.config.permissionMode,
+				thinkingEnabled: this.host.config.thinkingEnabled,
 			});
-		}
+		});
 
-		// --- Tool approval: resume agent ---
-		if (parsed.type === "tool-approval") {
-			const runId = sessionRunIds.get(this.sessionId);
-			if (!runId) return;
-
-			const approval = parsed as Record<string, unknown>;
-			const approved = approval.approved === true;
-
-			void resumeAgent({
-				sessionId: this.sessionId,
-				runId,
-				approved,
-				permissionMode:
-					typeof approval.permissionMode === "string"
-						? approval.permissionMode
-						: undefined,
-			});
-		}
-
-		// --- Control event: abort agent ---
-		if (parsed.type === "control") {
-			if (parsed.action === "abort") {
-				const controller = sessionAbortControllers.get(this.sessionId);
-				if (controller) {
-					console.log(
-						`[stream-watcher] Aborting agent for session ${this.sessionId}`,
-					);
-					controller.abort();
-				}
+		this.host.on("toolResult", ({ answers }) => {
+			const runId = sessionRunIds.get(options.sessionId);
+			if (runId) {
+				void resumeAgent({
+					sessionId: options.sessionId,
+					runId,
+					host: this.host,
+					approved: true,
+					answers,
+				});
 			}
-		}
+		});
 
-		// --- Config event: update runtime config ---
-		if (parsed.type === "config") {
-			this.applyConfig(parsed);
-		}
+		this.host.on("toolApproval", ({ approved, permissionMode }) => {
+			const runId = sessionRunIds.get(options.sessionId);
+			if (runId) {
+				void resumeAgent({
+					sessionId: options.sessionId,
+					runId,
+					host: this.host,
+					approved,
+					permissionMode,
+				});
+			}
+		});
+
+		this.host.on("abort", () => {
+			const controller = sessionAbortControllers.get(options.sessionId);
+			if (controller) {
+				console.log(
+					`[stream-watcher] Aborting agent for session ${options.sessionId}`,
+				);
+				controller.abort();
+			}
+		});
+
+		this.host.on("error", (err) => {
+			console.error(`[stream-watcher] Error for ${options.sessionId}:`, err);
+		});
 	}
 
-	private applyConfig(config: Record<string, unknown>): void {
-		if (typeof config.model === "string") this.config.modelId = config.model;
-		if (typeof config.cwd === "string") this.config.cwd = config.cwd;
-		if (typeof config.permissionMode === "string")
-			this.config.permissionMode = config.permissionMode;
-		if (typeof config.thinkingEnabled === "boolean")
-			this.config.thinkingEnabled = config.thinkingEnabled;
-		console.log(
-			`[stream-watcher] Config updated for session ${this.sessionId}:`,
-			{
-				modelId: this.config.modelId,
-				cwd: this.config.cwd,
-				permissionMode: this.config.permissionMode,
-				thinkingEnabled: this.config.thinkingEnabled,
-			},
-		);
+	get sessionHost() {
+		return this.host;
+	}
+
+	start(): void {
+		this.host.start();
+		void this.host.postConfig({ availableModels: getAvailableModels() });
 	}
 
 	stop(): void {
-		this.unsubscribe?.();
-		this.unsubscribe = null;
-		this.abortController.abort();
-		this.sessionDB = null;
-		console.log(
-			`[stream-watcher] Stopped watching session ${this.sessionId}`,
-		);
+		this.host.stop();
 	}
+}
+
+function extractTextFromMessage(message: UIMessage): string {
+	const parts = Array.isArray(message.parts) ? message.parts : [];
+	const texts: string[] = [];
+	for (const part of parts) {
+		if (part.type === "text") {
+			texts.push(part.text);
+		}
+	}
+	return texts.join("\n");
 }

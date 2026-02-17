@@ -1,7 +1,7 @@
-import { useCallback, useMemo } from "react";
 import { useLiveQuery } from "@tanstack/react-db";
+import { useCallback, useMemo } from "react";
 import type { SessionDB } from "../collection";
-import type { ChunkRow, RawPresenceRow, AgentValue } from "../schema";
+import type { AgentValue, ChunkRow, RawPresenceRow } from "../schema";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -108,7 +108,7 @@ export function useChatMetadata(
 
 	const { title, config } = useMemo(() => {
 		let title: string | null = null;
-		let config: SessionConfig = {};
+		const config: SessionConfig = {};
 
 		for (const row of (chunks ?? []) as ChunkRow[]) {
 			try {

@@ -1,0 +1,358 @@
+import { EventEmitter } from "node:events";
+import { DurableStream, IdempotentProducer } from "@durable-streams/client";
+import type { UIMessage, UIMessageChunk } from "ai";
+import { createSessionDB, type SessionDB } from "../collection";
+import { type ChunkRow, sessionStateSchema } from "../schema";
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
+
+export interface SessionHostOptions {
+	sessionId: string;
+	/** Proxy base URL for ALL reads and writes (e.g. "https://api.example.com/api/streams") */
+	baseUrl: string;
+	headers?: Record<string, string>;
+	signal?: AbortSignal;
+}
+
+export interface SessionHostConfig {
+	model?: string;
+	cwd?: string;
+	permissionMode?: string;
+	thinkingEnabled?: boolean;
+	availableModels?: Array<{ id: string; name: string; provider: string }>;
+	slashCommands?: Array<{
+		name: string;
+		description: string;
+		argumentHint: string;
+	}>;
+}
+
+export interface SessionHostEventMap {
+	message: [data: { messageId: string; message: UIMessage }];
+	toolApproval: [
+		data: {
+			approvalId: string;
+			approved: boolean;
+			permissionMode?: string;
+		},
+	];
+	toolResult: [
+		data: {
+			toolCallId: string;
+			output: unknown;
+			error?: string | null;
+			answers?: Record<string, string>;
+		},
+	];
+	abort: [];
+	config: [config: SessionHostConfig];
+	connected: [];
+	disconnected: [data: { reason?: string }];
+	error: [error: Error];
+}
+
+// ---------------------------------------------------------------------------
+// SessionHost
+// ---------------------------------------------------------------------------
+
+export class SessionHost {
+	private readonly sessionId: string;
+	private readonly baseUrl: string;
+	private readonly headers: Record<string, string>;
+	private readonly externalSignal?: AbortSignal;
+
+	private sessionDB: SessionDB | null = null;
+	private readonly seenMessageIds = new Set<string>();
+	private unsubscribe: (() => void) | null = null;
+	private abortController: AbortController | null = null;
+	private readonly emitter = new EventEmitter();
+
+	config: SessionHostConfig = {};
+
+	constructor(options: SessionHostOptions) {
+		this.sessionId = options.sessionId;
+		this.baseUrl = options.baseUrl;
+		this.headers = options.headers ?? {};
+		this.externalSignal = options.signal;
+	}
+
+	// -- Typed event methods --------------------------------------------------
+
+	on<K extends keyof SessionHostEventMap>(
+		event: K,
+		listener: (...args: SessionHostEventMap[K]) => void,
+	): this {
+		this.emitter.on(event, listener as (...args: unknown[]) => void);
+		return this;
+	}
+
+	off<K extends keyof SessionHostEventMap>(
+		event: K,
+		listener: (...args: SessionHostEventMap[K]) => void,
+	): this {
+		this.emitter.off(event, listener as (...args: unknown[]) => void);
+		return this;
+	}
+
+	private emit<K extends keyof SessionHostEventMap>(
+		event: K,
+		...args: SessionHostEventMap[K]
+	): boolean {
+		return this.emitter.emit(event, ...args);
+	}
+
+	// -- Lifecycle ------------------------------------------------------------
+
+	start(): void {
+		this.abortController = new AbortController();
+
+		if (this.externalSignal) {
+			this.externalSignal.addEventListener(
+				"abort",
+				() => this.abortController?.abort(),
+				{ once: true },
+			);
+		}
+
+		this.sessionDB = createSessionDB({
+			sessionId: this.sessionId,
+			baseUrl: this.baseUrl,
+			headers: this.headers,
+			signal: this.abortController.signal,
+		});
+
+		const chunks = this.sessionDB.collections.chunks;
+
+		// Seed seenMessageIds from existing chunks (prevents re-triggering history).
+		// Also replay the latest config event.
+		let latestConfig: Record<string, unknown> | null = null;
+
+		for (const row of chunks.values()) {
+			const chunkRow = row as ChunkRow;
+			try {
+				const parsed = JSON.parse(chunkRow.chunk);
+				if (
+					parsed.type === "whole-message" &&
+					parsed.message?.role === "user"
+				) {
+					this.seenMessageIds.add(chunkRow.messageId);
+				}
+				if (parsed.type === "config") {
+					latestConfig = parsed;
+				}
+			} catch {
+				// skip unparseable
+			}
+		}
+
+		if (latestConfig) {
+			this.applyConfig(latestConfig);
+		}
+
+		// Subscribe to chunk changes
+		const subscription = chunks.subscribeChanges(
+			(changes: Array<{ type: string; value: unknown }>) => {
+				for (const change of changes) {
+					if (change.type !== "insert" && change.type !== "update") continue;
+					const row = change.value as ChunkRow;
+
+					try {
+						const parsed = JSON.parse(row.chunk);
+						this.handleChunk(parsed, row);
+					} catch {
+						// skip unparseable
+					}
+				}
+			},
+		);
+
+		this.unsubscribe = () => subscription.unsubscribe();
+		this.emit("connected");
+
+		console.log(`[SessionHost] Started for session ${this.sessionId}`);
+	}
+
+	stop(): void {
+		this.unsubscribe?.();
+		this.unsubscribe = null;
+		this.abortController?.abort();
+		this.abortController = null;
+		this.sessionDB = null;
+		this.emit("disconnected", { reason: "stopped" });
+		console.log(`[SessionHost] Stopped for session ${this.sessionId}`);
+	}
+
+	// -- Write methods --------------------------------------------------------
+
+	async writeStream(
+		messageId: string,
+		stream: ReadableStream<UIMessageChunk>,
+		options?: { signal?: AbortSignal },
+	): Promise<void> {
+		const durableStream = new DurableStream({
+			url: `${this.baseUrl}/v1/stream/sessions/${this.sessionId}`,
+			headers: this.headers,
+		});
+
+		const producer = new IdempotentProducer(
+			durableStream,
+			`agent-${this.sessionId}`,
+			{
+				autoClaim: true,
+				lingerMs: 5,
+				maxInFlight: 5,
+				signal: options?.signal,
+				onError: (err) => {
+					if (options?.signal?.aborted) return;
+					this.emit("error", err);
+				},
+			},
+		);
+
+		let seq = 0;
+		const reader = stream.getReader();
+
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done || options?.signal?.aborted) break;
+
+				const event = sessionStateSchema.chunks.insert({
+					key: `${messageId}:${seq}`,
+					value: {
+						messageId,
+						actorId: "agent",
+						role: "assistant",
+						chunk: JSON.stringify(value),
+						seq,
+						createdAt: new Date().toISOString(),
+					},
+				});
+
+				producer.append(JSON.stringify(event));
+				seq++;
+			}
+		} finally {
+			try {
+				await producer.flush();
+				await producer.detach();
+			} catch (err) {
+				if (!options?.signal?.aborted) {
+					this.emit(
+						"error",
+						err instanceof Error ? err : new Error(String(err)),
+					);
+				}
+			}
+		}
+	}
+
+	async postConfig(config: Partial<SessionHostConfig>): Promise<void> {
+		const response = await fetch(
+			`${this.baseUrl}/v1/sessions/${this.sessionId}/config`,
+			{
+				method: "POST",
+				headers: {
+					...this.headers,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify(config),
+			},
+		);
+		if (!response.ok) {
+			throw new Error(`Failed to post config: ${response.status}`);
+		}
+	}
+
+	async postTitle(title: string): Promise<void> {
+		const response = await fetch(
+			`${this.baseUrl}/v1/sessions/${this.sessionId}`,
+			{
+				method: "PATCH",
+				headers: {
+					...this.headers,
+					"Content-Type": "application/json",
+				},
+				body: JSON.stringify({ title }),
+			},
+		);
+		if (!response.ok) {
+			throw new Error(`Failed to post title: ${response.status}`);
+		}
+	}
+
+	// -- Internal -------------------------------------------------------------
+
+	private handleChunk(parsed: Record<string, unknown>, row: ChunkRow): void {
+		// User message → emit "message"
+		if (
+			parsed.type === "whole-message" &&
+			typeof parsed.message === "object" &&
+			parsed.message !== null
+		) {
+			const msg = parsed.message as Record<string, unknown>;
+			if (msg.role !== "user") return;
+			if (this.seenMessageIds.has(row.messageId)) return;
+			this.seenMessageIds.add(row.messageId);
+
+			this.emit("message", {
+				messageId: row.messageId,
+				message: parsed.message as UIMessage,
+			});
+		}
+
+		// Tool result → emit "toolResult"
+		if (parsed.type === "tool-result") {
+			this.emit("toolResult", {
+				toolCallId: parsed.toolCallId as string,
+				output: parsed.output,
+				error: typeof parsed.error === "string" ? parsed.error : null,
+				answers:
+					typeof parsed.answers === "object" && parsed.answers !== null
+						? (parsed.answers as Record<string, string>)
+						: undefined,
+			});
+		}
+
+		// Tool approval → emit "toolApproval"
+		if (
+			parsed.type === "approval-response" ||
+			parsed.type === "tool-approval"
+		) {
+			this.emit("toolApproval", {
+				approvalId: parsed.approvalId as string,
+				approved: parsed.approved === true,
+				permissionMode:
+					typeof parsed.permissionMode === "string"
+						? parsed.permissionMode
+						: undefined,
+			});
+		}
+
+		// Control: abort → emit "abort"
+		if (parsed.type === "control" && parsed.action === "abort") {
+			this.emit("abort");
+		}
+
+		// Config → merge and emit "config"
+		if (parsed.type === "config") {
+			this.applyConfig(parsed);
+			this.emit("config", { ...this.config });
+		}
+	}
+
+	private applyConfig(config: Record<string, unknown>): void {
+		if (typeof config.model === "string") this.config.model = config.model;
+		if (typeof config.cwd === "string") this.config.cwd = config.cwd;
+		if (typeof config.permissionMode === "string")
+			this.config.permissionMode = config.permissionMode;
+		if (typeof config.thinkingEnabled === "boolean")
+			this.config.thinkingEnabled = config.thinkingEnabled;
+		if (Array.isArray(config.availableModels))
+			this.config.availableModels = config.availableModels;
+		if (Array.isArray(config.slashCommands))
+			this.config.slashCommands = config.slashCommands;
+	}
+}

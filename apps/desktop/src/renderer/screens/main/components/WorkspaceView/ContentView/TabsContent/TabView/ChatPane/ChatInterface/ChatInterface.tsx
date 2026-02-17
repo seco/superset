@@ -1,9 +1,10 @@
+import { useChat } from "@ai-sdk/react";
 import {
 	createSessionDB,
 	DurableChatTransport,
 } from "@superset/durable-session";
+import type { SlashCommand } from "@superset/durable-session/react";
 import { useChatMetadata } from "@superset/durable-session/react";
-import { useChat } from "@ai-sdk/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { env } from "renderer/env.renderer";
 import { getAuthToken } from "renderer/lib/auth-client";
@@ -11,12 +12,7 @@ import { useTabsStore } from "renderer/stores/tabs/store";
 import { ChatInputFooter } from "./components/ChatInputFooter";
 import { MessageList } from "./components/MessageList";
 import { DEFAULT_MODEL } from "./constants";
-import type { SlashCommand } from "@superset/durable-session/react";
-import type {
-	ChatInterfaceProps,
-	ModelOption,
-	PermissionMode,
-} from "./types";
+import type { ChatInterfaceProps, ModelOption, PermissionMode } from "./types";
 
 const apiUrl = env.NEXT_PUBLIC_API_URL;
 
@@ -155,7 +151,13 @@ function ActiveChatInterface({
 			thinkingEnabled,
 			cwd,
 		});
-	}, [sessionId]);
+	}, [
+		cwd,
+		metadata.updateConfig,
+		permissionMode,
+		selectedModel.id,
+		thinkingEnabled,
+	]);
 
 	const prevConfigRef = useRef({
 		modelId: selectedModel.id,
@@ -182,7 +184,13 @@ function ActiveChatInterface({
 			thinkingEnabled,
 			cwd,
 		});
-	}, [selectedModel.id, permissionMode, thinkingEnabled, sessionId, cwd, metadata.updateConfig]);
+	}, [
+		selectedModel.id,
+		permissionMode,
+		thinkingEnabled,
+		cwd,
+		metadata.updateConfig,
+	]);
 
 	const transport = useMemo(() => {
 		return new DurableChatTransport({
@@ -199,7 +207,8 @@ function ActiveChatInterface({
 		experimental_throttle: 50,
 	});
 
-	const isStreaming = chat.status === "streaming" || chat.status === "submitted";
+	const isStreaming =
+		chat.status === "streaming" || chat.status === "submitted";
 
 	const handleSend = useCallback(
 		(message: { text: string }) => {
@@ -228,10 +237,7 @@ function ActiveChatInterface({
 
 	return (
 		<div className="flex h-full flex-col bg-background">
-			<MessageList
-				messages={chat.messages}
-				isStreaming={isStreaming}
-			/>
+			<MessageList messages={chat.messages} isStreaming={isStreaming} />
 			<ChatInputFooter
 				cwd={cwd}
 				error={error}

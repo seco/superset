@@ -1,5 +1,5 @@
-import type { UIMessage } from "ai";
 import type { ToolDisplayState } from "@superset/ui/ai-elements/tool";
+import type { UIMessage } from "ai";
 
 // Extract tool part type from UIMessage
 type ToolPart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;

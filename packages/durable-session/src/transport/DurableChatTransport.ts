@@ -1,8 +1,8 @@
 import type {
+	ChatRequestOptions,
 	ChatTransport,
 	UIMessage,
 	UIMessageChunk,
-	ChatRequestOptions,
 } from "ai";
 import type { SessionDB } from "../collection";
 import type { ChunkRow } from "../schema";

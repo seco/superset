@@ -2,13 +2,13 @@ import { db } from "@superset/db/client";
 import {
 	agentCommands,
 	chatSessions,
-	sessionHosts,
 	devicePresence,
 	integrationConnections,
 	invitations,
 	members,
 	organizations,
 	projects,
+	sessionHosts,
 	subscriptions,
 	taskStatuses,
 	tasks,
@@ -128,18 +128,10 @@ export async function buildWhereClause(
 			return build(subscriptions, subscriptions.referenceId, organizationId);
 
 		case "chat_sessions":
-			return build(
-				chatSessions,
-				chatSessions.organizationId,
-				organizationId,
-			);
+			return build(chatSessions, chatSessions.organizationId, organizationId);
 
 		case "session_hosts":
-			return build(
-				sessionHosts,
-				sessionHosts.organizationId,
-				organizationId,
-			);
+			return build(sessionHosts, sessionHosts.organizationId, organizationId);
 
 		default:
 			return null;

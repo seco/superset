@@ -2,12 +2,8 @@ import { exec } from "node:child_process";
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
-import {
-	RequestContext,
-	superagent,
-	toAISdkStream,
-} from "@superset/agent";
-import { ensureProxySession, writeAgentStream } from "./write-stream-to-proxy";
+import { RequestContext, superagent, toAISdkStream } from "@superset/agent";
+import type { SessionHost } from "@superset/durable-session";
 
 // ---------------------------------------------------------------------------
 // Shared session state
@@ -32,6 +28,7 @@ export const sessionContext = new Map<string, SessionContext>();
 export interface RunAgentOptions {
 	sessionId: string;
 	text: string;
+	host: SessionHost;
 	modelId: string;
 	cwd: string;
 	permissionMode?: string;
@@ -42,6 +39,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 	const {
 		sessionId,
 		text,
+		host,
 		modelId,
 		cwd,
 		permissionMode,
@@ -121,8 +119,10 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 			sessionRunIds.set(sessionId, output.runId);
 		}
 
-		await writeToDurableStream(output, sessionId, abortController.signal);
-		console.log(`[run-agent] Finished writing to durable stream for ${sessionId}`);
+		await writeToDurableStream(output, host, abortController.signal);
+		console.log(
+			`[run-agent] Finished writing to durable stream for ${sessionId}`,
+		);
 	} catch (error) {
 		sessionRunIds.delete(sessionId);
 		sessionContext.delete(sessionId);
@@ -143,13 +143,14 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 export interface ResumeAgentOptions {
 	sessionId: string;
 	runId: string;
+	host: SessionHost;
 	approved: boolean;
 	answers?: Record<string, string>;
 	permissionMode?: string;
 }
 
 export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
-	const { sessionId, runId, approved, answers, permissionMode } = options;
+	const { sessionId, runId, host, approved, answers, permissionMode } = options;
 
 	if (permissionMode) {
 		const ctx = sessionContext.get(sessionId);
@@ -157,9 +158,7 @@ export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
 	}
 
 	const ctx = sessionContext.get(sessionId);
-	const ctxEntries: [string, string][] = ctx
-		? [...ctx.requestEntries]
-		: [];
+	const ctxEntries: [string, string][] = ctx ? [...ctx.requestEntries] : [];
 
 	if (answers) {
 		ctxEntries.push(["toolAnswers", JSON.stringify(answers)]);
@@ -179,7 +178,7 @@ export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
 			? await superagent.approveToolCall(approvalOpts)
 			: await superagent.declineToolCall(approvalOpts);
 
-		await writeToDurableStream(stream, sessionId, abortController.signal);
+		await writeToDurableStream(stream, host, abortController.signal);
 	} catch (error) {
 		sessionRunIds.delete(sessionId);
 		sessionContext.delete(sessionId);
@@ -199,16 +198,13 @@ export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
 
 async function writeToDurableStream(
 	stream: Parameters<typeof toAISdkStream>[0],
-	sessionId: string,
+	host: SessionHost,
 	abortSignal: AbortSignal,
 ) {
 	const messageId = crypto.randomUUID();
-	await ensureProxySession(sessionId);
 	const aiStream = toAISdkStream(stream, { from: "agent" });
-	await writeAgentStream(aiStream as unknown as ReadableStream, {
-		sessionId,
-		messageId,
-		abortSignal,
+	await host.writeStream(messageId, aiStream as unknown as ReadableStream, {
+		signal: abortSignal,
 	});
 }
 

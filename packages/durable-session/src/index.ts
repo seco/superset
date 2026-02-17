@@ -1,23 +1,27 @@
 export {
-	sessionStateSchema,
-	chunkValueSchema,
-	presenceValueSchema,
-	agentValueSchema,
-	type SessionStateSchema,
-	type ChunkValue,
-	type ChunkRow,
-	type PresenceValue,
-	type RawPresenceRow,
-	type AgentValue,
-} from "./schema";
-
-export {
 	createSessionDB,
-	type SessionDB,
 	type SessionCollections,
+	type SessionDB,
 	type SessionDBConfig,
 } from "./collection";
-
+export {
+	SessionHost,
+	type SessionHostConfig,
+	type SessionHostEventMap,
+	type SessionHostOptions,
+} from "./host";
+export {
+	type AgentValue,
+	agentValueSchema,
+	type ChunkRow,
+	type ChunkValue,
+	chunkValueSchema,
+	type PresenceValue,
+	presenceValueSchema,
+	type RawPresenceRow,
+	type SessionStateSchema,
+	sessionStateSchema,
+} from "./schema";
 export {
 	DurableChatTransport,
 	type DurableChatTransportOptions,

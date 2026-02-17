@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { SlashCommand } from "@superset/durable-session/react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 export type { SlashCommand };
 

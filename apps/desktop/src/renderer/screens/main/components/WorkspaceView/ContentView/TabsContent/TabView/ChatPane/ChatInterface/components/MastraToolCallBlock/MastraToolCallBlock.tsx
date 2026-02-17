@@ -124,10 +124,7 @@ export function MastraToolCallBlock({
 	if (toolName === "ask_user_question") {
 		const questions = Array.isArray(args.questions) ? args.questions : [];
 
-		if (
-			part.state === "output-available" ||
-			part.state === "output-error"
-		) {
+		if (part.state === "output-available" || part.state === "output-error") {
 			const answers = result.answers as Record<string, string> | undefined;
 			return (
 				<ToolCall
@@ -195,7 +192,8 @@ export function MastraToolCallBlock({
 	}
 
 	// --- Fallback: generic tool UI ---
-	const output = "output" in part ? (part as { output: unknown }).output : undefined;
+	const output =
+		"output" in part ? (part as { output: unknown }).output : undefined;
 	const isError = part.state === "output-error";
 
 	return (
