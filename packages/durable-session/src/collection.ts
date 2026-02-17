@@ -21,7 +21,20 @@ import {
 	type RawPresenceRow,
 	sessionStateSchema,
 } from "./schema";
-import type { SessionDBConfig } from "./types";
+
+/**
+ * Configuration for creating a session stream-db.
+ */
+export interface SessionDBConfig {
+	/** Session identifier */
+	sessionId: string;
+	/** Base URL for the proxy */
+	baseUrl: string;
+	/** Additional headers for stream requests */
+	headers?: Record<string, string>;
+	/** AbortSignal to cancel the stream sync */
+	signal?: AbortSignal;
+}
 
 // ============================================================================
 // Session StreamDB Types
@@ -35,7 +48,7 @@ import type { SessionDBConfig } from "./types";
  * We define the correct types here.
  *
  * Note: The presence collection here is the raw per-device presence.
- * The aggregated per-actor presence is created in client.ts.
+ * The aggregated per-user presence is created by useChatPresence.
  */
 export interface SessionCollections {
 	chunks: Collection<ChunkRow>;
@@ -48,7 +61,7 @@ export interface SessionCollections {
  *
  * Provides typed access to:
  * - `db.collections.chunks` - All message chunks
- * - `db.collections.presence` - User/agent presence
+ * - `db.collections.presence` - User presence
  * - `db.collections.agents` - Registered agents
  *
  * Plus stream-db methods:

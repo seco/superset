@@ -1,9 +1,9 @@
 export { createApprovalRoutes } from "./approvals";
-export { createAuthRoutes } from "./auth";
 export { createChunkRoutes } from "./chunks";
-export { createForkRoutes } from "./fork";
+export { createGenerationRoutes } from "./generations";
 export { createHealthRoutes } from "./health";
 export { createMessageRoutes } from "./messages";
+export { createPresenceRoutes } from "./presence";
 export { createSessionRoutes } from "./sessions";
+export { createStopRoutes } from "./stop";
 export { createStreamRoutes, PROTOCOL_RESPONSE_HEADERS } from "./stream";
-export { createToolResultRoutes } from "./tool-results";

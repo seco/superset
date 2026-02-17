@@ -17,19 +17,11 @@ export const PROTOCOL_RESPONSE_HEADERS = [
 
 const PROTOCOL_QUERY_PARAMS = DURABLE_STREAM_PROTOCOL_QUERY_PARAMS;
 
-const _HEADERS_TO_STRIP = [
-	"content-encoding",
-	"content-length",
-	"transfer-encoding",
-	"connection",
-] as const;
-
 export function createStreamRoutes(baseUrl: string) {
 	const app = new Hono();
 
 	app.get("/sessions/:sessionId", async (c) => {
 		const sessionId = c.req.param("sessionId");
-
 		const upstreamUrl = new URL(`${baseUrl}/v1/stream/sessions/${sessionId}`);
 
 		for (const param of PROTOCOL_QUERY_PARAMS) {
@@ -57,7 +49,6 @@ export function createStreamRoutes(baseUrl: string) {
 				if (upstreamResponse.status === 404) {
 					return c.json({ error: "Stream not found" }, 404);
 				}
-
 				const errorText = await upstreamResponse
 					.text()
 					.catch(() => "Unknown error");
@@ -72,7 +63,6 @@ export function createStreamRoutes(baseUrl: string) {
 			}
 
 			const responseHeaders = new Headers();
-
 			for (const header of PROTOCOL_RESPONSE_HEADERS) {
 				const value = upstreamResponse.headers.get(header);
 				if (value !== null) {

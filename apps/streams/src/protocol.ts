@@ -1,32 +1,26 @@
 import { DurableStream, IdempotentProducer } from "@durable-streams/client";
-import {
-	createMessagesCollection,
-	createModelMessagesCollection,
-	createSessionDB,
-	sessionStateSchema,
-} from "@superset/durable-session";
-import type {
-	AIDBProtocolOptions,
-	ProxySessionState,
-	StreamChunk,
-} from "./types";
+import { sessionStateSchema } from "@superset/durable-session";
 
 type MessageRole = "user" | "assistant" | "system";
 
+interface StreamChunk {
+	type: string;
+	[key: string]: unknown;
+}
+
 const FLUSH_TIMEOUT_MS = 10_000;
 
-export class AIDBSessionProtocol {
+export class SessionProtocol {
 	private readonly baseUrl: string;
 	private streams = new Map<string, DurableStream>();
 	private producers = new Map<string, IdempotentProducer>();
 	private messageSeqs = new Map<string, number>();
-	private sessionStates = new Map<string, ProxySessionState>();
 	private producerErrors = new Map<string, Error[]>();
 	private producerHealthy = new Map<string, boolean>();
 	private activeGenerationIds = new Map<string, string>();
 	private sessionLocks = new Map<string, Promise<void>>();
 
-	constructor(options: AIDBProtocolOptions) {
+	constructor(options: { baseUrl: string }) {
 		this.baseUrl = options.baseUrl;
 	}
 
@@ -82,8 +76,7 @@ export class AIDBSessionProtocol {
 
 		const producer = new IdempotentProducer(stream, `session-${sessionId}`, {
 			autoClaim: true,
-			lingerMs: 1, // Desktop ChunkBatcher already coalesces at 5ms
-
+			lingerMs: 1,
 			maxInFlight: 5,
 			onError: (err) => {
 				console.error(`[protocol] Producer error for ${sessionId}:`, err);
@@ -91,8 +84,6 @@ export class AIDBSessionProtocol {
 			},
 		});
 		this.producers.set(sessionId, producer);
-
-		await this.initializeSessionState(sessionId);
 
 		return stream;
 	}
@@ -132,89 +123,34 @@ export class AIDBSessionProtocol {
 				this.producers.delete(sessionId);
 			}
 
-			const state = this.sessionStates.get(sessionId);
-			if (state) {
-				state.changeSubscription?.unsubscribe();
-				state.sessionDB.close();
-			}
-
 			this.streams.delete(sessionId);
-			this.sessionStates.delete(sessionId);
 			this.producerErrors.delete(sessionId);
 			this.producerHealthy.delete(sessionId);
 			this.activeGenerationIds.delete(sessionId);
 		});
 	}
 
-	async resetSession(sessionId: string, _clearPresence = false): Promise<void> {
+	async resetSession(sessionId: string): Promise<void> {
 		return this.withSessionLock(sessionId, async () => {
 			const stream = this.streams.get(sessionId);
 			if (!stream) {
 				throw new Error(`Session ${sessionId} not found`);
 			}
 
-			// Flush before reset so queued chunks are ordered before the control event
 			await this.flushSession(sessionId);
 
 			await stream.append(
 				JSON.stringify({ headers: { control: "reset" as const } }),
 			);
 
-			const state = this.sessionStates.get(sessionId);
-			const generationMessageIds = new Set<string>(
-				state?.activeGenerations ?? [],
-			);
 			const activeMessageId = this.activeGenerationIds.get(sessionId);
 			if (activeMessageId) {
-				generationMessageIds.add(activeMessageId);
-			}
-			for (const generationMessageId of generationMessageIds) {
-				this.messageSeqs.delete(generationMessageId);
+				this.messageSeqs.delete(activeMessageId);
 			}
 
 			this.producerErrors.set(sessionId, []);
 			this.producerHealthy.set(sessionId, true);
 			this.activeGenerationIds.delete(sessionId);
-			if (state) {
-				state.activeGenerations = [];
-			}
-
-			this.updateLastActivity(sessionId);
-		});
-	}
-
-	private updateLastActivity(sessionId: string): void {
-		const state = this.sessionStates.get(sessionId);
-		if (state) {
-			state.lastActivityAt = new Date().toISOString();
-		}
-	}
-
-	private async initializeSessionState(sessionId: string): Promise<void> {
-		const sessionDB = createSessionDB({
-			sessionId,
-			baseUrl: this.baseUrl,
-		});
-
-		await sessionDB.preload();
-
-		const messages = createMessagesCollection({
-			chunksCollection: sessionDB.collections.chunks,
-		});
-
-		const modelMessages = createModelMessagesCollection({
-			messagesCollection: messages,
-		});
-
-		this.sessionStates.set(sessionId, {
-			createdAt: new Date().toISOString(),
-			lastActivityAt: new Date().toISOString(),
-			activeGenerations: [],
-			sessionDB,
-			messages,
-			modelMessages,
-			changeSubscription: null,
-			isReady: true,
 		});
 	}
 
@@ -229,8 +165,42 @@ export class AIDBSessionProtocol {
 		this.messageSeqs.delete(messageId);
 	}
 
+	async writeUserMessage(
+		sessionId: string,
+		messageId: string,
+		actorId: string,
+		content: string,
+		txid?: string,
+	): Promise<void> {
+		const message = {
+			id: messageId,
+			role: "user" as const,
+			parts: [{ type: "text" as const, text: content }],
+			createdAt: new Date().toISOString(),
+		};
+
+		const event = sessionStateSchema.chunks.insert({
+			key: `${messageId}:0`,
+			value: {
+				messageId,
+				actorId,
+				role: "user" as const,
+				chunk: JSON.stringify({ type: "whole-message", message }),
+				seq: 0,
+				createdAt: new Date().toISOString(),
+			},
+			...(txid && { headers: { txid } }),
+		});
+
+		await this.flushSession(sessionId);
+		const stream = this.streams.get(sessionId);
+		if (!stream) {
+			throw new Error(`Session ${sessionId} not found`);
+		}
+		await stream.append(JSON.stringify(event));
+	}
+
 	async writeChunk(
-		_stream: DurableStream,
 		sessionId: string,
 		messageId: string,
 		actorId: string,
@@ -254,7 +224,6 @@ export class AIDBSessionProtocol {
 		});
 
 		await this.appendToStream(sessionId, JSON.stringify(event));
-		this.updateLastActivity(sessionId);
 	}
 
 	async writeChunks({
@@ -286,7 +255,51 @@ export class AIDBSessionProtocol {
 			});
 			await this.appendToStream(sessionId, JSON.stringify(event));
 		}
-		this.updateLastActivity(sessionId);
+	}
+
+	async writePresence(
+		sessionId: string,
+		userId: string,
+		deviceId: string,
+		status: "active" | "idle" | "typing" | "offline",
+		name?: string,
+	): Promise<void> {
+		const event = sessionStateSchema.presence.upsert({
+			key: `${userId}:${deviceId}`,
+			value: {
+				userId,
+				deviceId,
+				name,
+				status,
+				lastSeenAt: new Date().toISOString(),
+			},
+		});
+
+		await this.appendToStream(sessionId, JSON.stringify(event), {
+			flush: true,
+		});
+	}
+
+	async writeApprovalResponse(
+		sessionId: string,
+		actorId: string,
+		approvalId: string,
+		approved: boolean,
+		txid?: string,
+	): Promise<void> {
+		const messageId = crypto.randomUUID();
+
+		await this.writeChunk(
+			sessionId,
+			messageId,
+			actorId,
+			"user",
+			{ type: "approval-response", approvalId, approved } as StreamChunk,
+			txid,
+		);
+
+		await this.flushSession(sessionId);
+		this.clearSeq(messageId);
 	}
 
 	private async appendToStream(
@@ -382,201 +395,8 @@ export class AIDBSessionProtocol {
 		}
 	}
 
-	async writeUserMessage(
-		stream: DurableStream,
-		sessionId: string,
-		messageId: string,
-		actorId: string,
-		content: string,
-		txid?: string,
-	): Promise<void> {
-		const message = {
-			id: messageId,
-			role: "user" as const,
-			parts: [{ type: "text" as const, content }],
-			createdAt: new Date().toISOString(),
-		};
-
-		const event = sessionStateSchema.chunks.insert({
-			key: `${messageId}:0`,
-			value: {
-				messageId,
-				actorId,
-				role: "user" as const,
-				chunk: JSON.stringify({
-					type: "whole-message",
-					message,
-				}),
-				seq: 0,
-				createdAt: new Date().toISOString(),
-			},
-			...(txid && { headers: { txid } }),
-		});
-
-		// Flush producer for ordering, then write directly to stream
-		// so the txid header is immediately visible to subscribers.
-		await this.flushSession(sessionId);
-		await stream.append(JSON.stringify(event));
-		this.updateLastActivity(sessionId);
-	}
-
-	async writePresence(
-		_stream: DurableStream,
-		sessionId: string,
-		actorId: string,
-		deviceId: string,
-		actorType: "user" | "agent",
-		status: "online" | "offline" | "away",
-		name?: string,
-	): Promise<void> {
-		const event = sessionStateSchema.presence.upsert({
-			key: `${actorId}:${deviceId}`,
-			value: {
-				actorId,
-				deviceId,
-				actorType,
-				name,
-				status,
-				lastSeenAt: new Date().toISOString(),
-			},
-		});
-
-		await this.appendToStream(sessionId, JSON.stringify(event), {
-			flush: true,
-		});
-		this.updateLastActivity(sessionId);
-	}
-
-	async getDeviceIdsForActor(
-		sessionId: string,
-		actorId: string,
-	): Promise<string[]> {
-		const state = this.sessionStates.get(sessionId);
-		if (!state) {
-			return [];
-		}
-
-		const presence = state.sessionDB.collections.presence;
-		const deviceIds: string[] = [];
-
-		for (const row of presence.values()) {
-			if (row.actorId === actorId && row.status === "online") {
-				deviceIds.push(row.deviceId);
-			}
-		}
-
-		return deviceIds;
-	}
-
-	stopGeneration(_sessionId: string, _messageId: string | null): void {
+	stopGeneration(_sessionId: string): void {
 		// No-op: agent execution moved to desktop. Cross-client stop
-		// requires future signaling implementation. The /stop endpoint
-		// still exists so clients don't get 404.
-	}
-
-	async writeToolResult(
-		stream: DurableStream,
-		sessionId: string,
-		messageId: string,
-		actorId: string,
-		toolCallId: string,
-		output: unknown,
-		error: string | null,
-		txid?: string,
-	): Promise<void> {
-		await this.writeChunk(
-			stream,
-			sessionId,
-			messageId,
-			actorId,
-			"user",
-			{
-				type: "tool-result",
-				toolCallId,
-				output,
-				error,
-			} as StreamChunk,
-			txid,
-		);
-
-		await this.flushSession(sessionId);
-		this.clearSeq(messageId);
-	}
-
-	async writeApprovalResponse(
-		stream: DurableStream,
-		sessionId: string,
-		actorId: string,
-		approvalId: string,
-		approved: boolean,
-		txid?: string,
-	): Promise<void> {
-		const messageId = crypto.randomUUID();
-
-		await this.writeChunk(
-			stream,
-			sessionId,
-			messageId,
-			actorId,
-			"user",
-			{
-				type: "approval-response",
-				approvalId,
-				approved,
-			} as StreamChunk,
-			txid,
-		);
-
-		await this.flushSession(sessionId);
-		this.clearSeq(messageId);
-	}
-
-	async forkSession(
-		sessionId: string,
-		_atMessageId: string | null,
-		newSessionId: string | null,
-	): Promise<{ sessionId: string; offset: string }> {
-		const targetSessionId = newSessionId ?? crypto.randomUUID();
-
-		const sourceStream = this.streams.get(sessionId);
-		if (!sourceStream) {
-			throw new Error(`Session ${sessionId} not found`);
-		}
-
-		await this.createSession(targetSessionId);
-
-		const sourceState = this.sessionStates.get(sessionId);
-		if (sourceState) {
-			this.sessionStates.set(targetSessionId, {
-				...sourceState,
-				createdAt: new Date().toISOString(),
-				lastActivityAt: new Date().toISOString(),
-				activeGenerations: [],
-			});
-		}
-
-		// TODO: Copy stream data up to atMessageId
-		return {
-			sessionId: targetSessionId,
-			offset: "-1",
-		};
-	}
-
-	async getMessageHistory(
-		sessionId: string,
-	): Promise<Array<{ role: string; content: string }>> {
-		const state = this.sessionStates.get(sessionId);
-
-		if (!state || !state.isReady) {
-			console.warn(
-				`[Protocol] Session ${sessionId} not ready for message history`,
-			);
-			return [];
-		}
-
-		return state.modelMessages.toArray.map((msg) => ({
-			role: msg.role,
-			content: msg.content,
-		}));
+		// requires future signaling implementation.
 	}
 }

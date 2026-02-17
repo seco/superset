@@ -26,9 +26,7 @@ const corsOrigins = env.CORS_ORIGINS
 
 const { app } = createServer({
 	baseUrl: internalUrl,
-	cors: true,
 	corsOrigins,
-	logging: true,
 });
 
 const proxyServer = serve(

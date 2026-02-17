@@ -1,112 +1,76 @@
-import { db } from "@superset/db";
-import { sessions } from "@superset/db/schema/auth";
-import { and, eq, gt } from "drizzle-orm";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
-import { AIDBSessionProtocol } from "./protocol";
+import { env } from "./env";
+import { SessionProtocol } from "./protocol";
 import {
 	createApprovalRoutes,
-	createAuthRoutes,
 	createChunkRoutes,
-	createForkRoutes,
+	createGenerationRoutes,
 	createHealthRoutes,
 	createMessageRoutes,
+	createPresenceRoutes,
 	createSessionRoutes,
+	createStopRoutes,
 	createStreamRoutes,
-	createToolResultRoutes,
 	PROTOCOL_RESPONSE_HEADERS,
 } from "./routes";
-import type { AIDBProtocolOptions } from "./types";
 
-type SessionEnv = {
-	Variables: {
-		userId: string;
-	};
-};
+export function createServer(options: {
+	baseUrl: string;
+	corsOrigins?: string[];
+}) {
+	const app = new Hono();
+	const protocol = new SessionProtocol({ baseUrl: options.baseUrl });
 
-export interface AIDBProxyServerOptions extends AIDBProtocolOptions {
-	cors?: boolean;
-	logging?: boolean;
-	corsOrigins?: string | string[];
-}
+	const allowedOrigins = options.corsOrigins ?? null;
 
-export function createServer(options: AIDBProxyServerOptions) {
-	const app = new Hono<SessionEnv>();
+	app.use(
+		"*",
+		cors({
+			origin: allowedOrigins
+				? (origin) => {
+						if (!origin || origin === "null") return origin ?? "*";
+						return allowedOrigins.includes(origin) ? origin : "";
+					}
+				: "*",
+			allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+			allowHeaders: [
+				"Content-Type",
+				"Authorization",
+				"X-Actor-Id",
+				"X-Session-Id",
+			],
+			exposeHeaders: [...PROTOCOL_RESPONSE_HEADERS],
+		}),
+	);
 
-	const protocol = new AIDBSessionProtocol({
-		baseUrl: options.baseUrl,
-		storage: options.storage,
-	});
-
-	if (options.cors !== false) {
-		const allowedOrigins = options.corsOrigins
-			? Array.isArray(options.corsOrigins)
-				? options.corsOrigins
-				: [options.corsOrigins]
-			: null;
-
-		app.use(
-			"*",
-			cors({
-				// When allowedOrigins is configured, use a function that also permits
-				// null origins (Electron file://, non-browser clients).
-				// Auth is enforced via Bearer tokens, not cookies, so this is safe.
-				origin: allowedOrigins
-					? (origin) => {
-							if (!origin || origin === "null") return origin ?? "*";
-							return allowedOrigins.includes(origin) ? origin : "";
-						}
-					: "*",
-				allowMethods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-				allowHeaders: [
-					"Content-Type",
-					"Authorization",
-					"X-Actor-Id",
-					"X-Actor-Type",
-					"X-Session-Id",
-				],
-				exposeHeaders: [...PROTOCOL_RESPONSE_HEADERS],
-			}),
-		);
-	}
-
-	if (options.logging !== false) {
-		app.use("*", logger());
-	}
+	app.use("*", logger());
 
 	app.route("/health", createHealthRoutes());
 
-	// No auth on health; Bearer token required on /v1/*
-	app.use("/v1/*", async (c, next) => {
-		const authorization = c.req.header("Authorization");
-		if (!authorization?.startsWith("Bearer ")) {
-			return c.json({ error: "Unauthorized" }, 401);
-		}
-
-		const token = authorization.slice(7);
-		const [session] = await db
-			.select({ userId: sessions.userId })
-			.from(sessions)
-			.where(and(eq(sessions.token, token), gt(sessions.expiresAt, new Date())))
-			.limit(1);
-
-		if (!session) {
-			return c.json({ error: "Unauthorized" }, 401);
-		}
-
-		c.set("userId", session.userId);
-		return next();
-	});
+	if (env.STREAMS_AUTH_TOKEN) {
+		const token = env.STREAMS_AUTH_TOKEN;
+		app.use("/v1/*", async (c, next) => {
+			const authorization = c.req.header("Authorization");
+			if (!authorization?.startsWith("Bearer ")) {
+				return c.json({ error: "Unauthorized" }, 401);
+			}
+			if (authorization.slice(7) !== token) {
+				return c.json({ error: "Unauthorized" }, 401);
+			}
+			return next();
+		});
+	}
 
 	const v1 = new Hono();
 	v1.route("/sessions", createSessionRoutes(protocol));
-	v1.route("/sessions", createAuthRoutes(protocol));
 	v1.route("/sessions", createMessageRoutes(protocol));
-	v1.route("/sessions", createToolResultRoutes(protocol));
-	v1.route("/sessions", createApprovalRoutes(protocol));
-	v1.route("/sessions", createForkRoutes(protocol));
 	v1.route("/sessions", createChunkRoutes(protocol));
+	v1.route("/sessions", createGenerationRoutes(protocol));
+	v1.route("/sessions", createStopRoutes(protocol));
+	v1.route("/sessions", createApprovalRoutes(protocol));
+	v1.route("/sessions", createPresenceRoutes(protocol));
 	v1.route("/stream", createStreamRoutes(options.baseUrl));
 
 	app.route("/v1", v1);
@@ -120,19 +84,16 @@ export function createServer(options: AIDBProxyServerOptions) {
 				stream: "/v1/stream/sessions/:sessionId",
 				sessions: "/v1/sessions/:sessionId",
 				messages: "/v1/sessions/:sessionId/messages",
-				toolResults: "/v1/sessions/:sessionId/tool-results",
-				approvals: "/v1/sessions/:sessionId/approvals/:approvalId",
 				chunks: "/v1/sessions/:sessionId/chunks",
 				chunksBatch: "/v1/sessions/:sessionId/chunks/batch",
+				approvals: "/v1/sessions/:sessionId/approvals/:approvalId",
+				presence: "/v1/sessions/:sessionId/login",
+				generationsStart: "/v1/sessions/:sessionId/generations/start",
 				generationsFinish: "/v1/sessions/:sessionId/generations/finish",
-				fork: "/v1/sessions/:sessionId/fork",
 				stop: "/v1/sessions/:sessionId/stop",
-				reset: "/v1/sessions/:sessionId/reset",
 			},
 		});
 	});
 
 	return { app, protocol };
 }
-
-export default createServer;

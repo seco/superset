@@ -52,9 +52,9 @@ export const chunkValueSchema = z.object({
 	messageId: z.string(),
 	/** Actor who wrote this chunk */
 	actorId: z.string(),
-	/** Message role - aligns with TanStack AI UIMessage.role */
+	/** Message role - aligns with AI SDK UIMessage.role */
 	role: z.enum(["user", "assistant", "system"]),
-	/** JSON-encoded chunk content - could be WholeMessageChunk or StreamChunk */
+	/** JSON-encoded chunk content - UIMessageChunk from AI SDK */
 	chunk: z.string(),
 	/** Sequence number within message - monotonically increasing per messageId */
 	seq: z.number(),
@@ -72,24 +72,26 @@ export type ChunkValue = z.infer<typeof chunkValueSchema>;
 /**
  * Presence schema for tracking online users and agents.
  *
- * Uses upsert semantics with (actorId, deviceId) pairs.
+ * Uses upsert semantics with (userId, deviceId) pairs.
  * Each tab/page load gets a unique deviceId.
  *
- * Key format: `${actorId}:${deviceId}` - e.g., "user-123:device-abc"
+ * Key format: `${userId}:${deviceId}` - e.g., "user-123:device-abc"
  */
 export const presenceValueSchema = z.object({
-	/** Actor identifier */
-	actorId: z.string(),
+	/** User identifier */
+	userId: z.string(),
 	/** Device/tab identifier - unique per browser tab/page load */
 	deviceId: z.string(),
-	/** Actor type - 'user' or 'agent' */
-	actorType: z.enum(["user", "agent"]),
 	/** Optional display name */
 	name: z.string().optional(),
 	/** Current status */
-	status: z.enum(["online", "offline", "away"]),
+	status: z.enum(["active", "idle", "typing", "offline"]),
 	/** ISO 8601 timestamp of last activity */
 	lastSeenAt: z.string(),
+	/** Draft message text being composed */
+	draft: z.string().optional(),
+	/** Cursor position within draft */
+	cursorPosition: z.number().optional(),
 });
 
 /** Inferred type for presence values */
@@ -116,6 +118,10 @@ export const agentValueSchema = z.object({
 	endpoint: z.string(),
 	/** Trigger mode - when to invoke this agent */
 	triggers: z.enum(["all", "user-messages"]).optional(),
+	/** Model identifier being used by this agent */
+	model: z.string().optional(),
+	/** Message ID of the currently active generation (null when idle) */
+	generationMessageId: z.string().optional(),
 });
 
 /** Inferred type for agent values */
@@ -170,11 +176,10 @@ export const sessionStateSchema = createStateSchema({
 	},
 
 	/**
-	 * Presence collection - online status of users and agents.
+	 * Presence collection - online status of users.
 	 *
-	 * Uses upsert semantics with (actorId, deviceId) pairs.
-	 * Primary key `id` is injected from event.key = `${actorId}:${deviceId}`
-	 * This follows the same pattern as chunks.
+	 * Uses upsert semantics with (userId, deviceId) pairs.
+	 * Primary key `id` is injected from event.key = `${userId}:${deviceId}`
 	 */
 	presence: {
 		schema: presenceValueSchema,
@@ -216,33 +221,35 @@ export type ChunkRow = ChunkValue & {
  * RawPresenceRow - a presence value with the injected `id` primary key.
  *
  * This is the type of rows in raw presence collection after stream-db
- * injects the primary key from the event key = `${actorId}:${deviceId}`
+ * injects the primary key from the event key = `${userId}:${deviceId}`
  *
  * This is the internal/raw type. For the public API, use PresenceRow
- * which is an aggregated view per actor.
+ * which is an aggregated view per user.
  */
 export type RawPresenceRow = PresenceValue & {
-	/** Primary key - injected from event.key = `${actorId}:${deviceId}` */
+	/** Primary key - injected from event.key = `${userId}:${deviceId}` */
 	id: string;
 };
 
 /**
- * PresenceRow - aggregated presence per actor.
+ * PresenceRow - aggregated presence per user.
  *
  * This is the public type exposed to components. It aggregates
- * all devices for an actor into a single row showing who's online.
+ * all devices for a user into a single row showing who's online.
  */
 export type PresenceRow = {
-	/** Actor identifier */
-	actorId: string;
-	/** Actor type - 'user' or 'agent' */
-	actorType: "user" | "agent";
+	/** User identifier */
+	userId: string;
 	/** Optional display name */
 	name?: string;
-	/** All online device IDs for this actor */
+	/** All online device IDs for this user */
 	deviceIds: string[];
 	/** Number of online devices */
 	deviceCount: number;
+	/** Draft message text being composed */
+	draft?: string;
+	/** Cursor position within draft */
+	cursorPosition?: number;
 };
 
 /**
