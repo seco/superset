@@ -129,7 +129,6 @@ export async function MainWindow() {
 	registerMenuHotkeyUpdates();
 
 	currentWindow = window;
-	browserManager.init(getWindow);
 
 	// macOS Sequoia+: background throttling can corrupt GPU compositor layers
 	if (PLATFORM.IS_MAC) {
@@ -268,7 +267,7 @@ export async function MainWindow() {
 			zoomLevel,
 		});
 
-		browserManager.destroyAll();
+		browserManager.unregisterAll();
 		server.close();
 		notificationManager.dispose();
 		notificationsEmitter.removeAllListeners();

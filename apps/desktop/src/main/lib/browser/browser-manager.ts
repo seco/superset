@@ -1,12 +1,5 @@
 import { EventEmitter } from "node:events";
-import {
-	app,
-	type BrowserWindow,
-	clipboard,
-	session,
-	WebContentsView,
-} from "electron";
-import type { NavigationEvent } from "shared/browser-types";
+import { app, clipboard, webContents } from "electron";
 
 interface ConsoleEntry {
 	level: "log" | "warn" | "error" | "info" | "debug";
@@ -14,133 +7,78 @@ interface ConsoleEntry {
 	timestamp: number;
 }
 
-interface BrowserViewEntry {
-	view: WebContentsView;
-	bounds: Electron.Rectangle;
-	visible: boolean;
-}
-
 const MAX_CONSOLE_ENTRIES = 500;
 
+function sanitizeUrl(url: string): string {
+	if (/^https?:\/\//i.test(url) || url.startsWith("about:")) {
+		return url;
+	}
+	if (url.startsWith("localhost") || url.startsWith("127.0.0.1")) {
+		return `http://${url}`;
+	}
+	if (url.includes(".")) {
+		return `https://${url}`;
+	}
+	return `https://www.google.com/search?q=${encodeURIComponent(url)}`;
+}
+
 class BrowserManager extends EventEmitter {
-	private views = new Map<string, BrowserViewEntry>();
+	private paneWebContentsIds = new Map<string, number>();
 	private consoleLogs = new Map<string, ConsoleEntry[]>();
 	private consoleListeners = new Map<string, () => void>();
-	private getWindow: (() => BrowserWindow | null) | null = null;
 
-	init(getWindow: () => BrowserWindow | null): void {
-		this.getWindow = getWindow;
-	}
-
-	create(paneId: string, initialUrl: string): number {
-		const existing = this.views.get(paneId);
-		if (existing) {
-			return existing.view.webContents.id;
-		}
-
-		const view = new WebContentsView({
-			webPreferences: {
-				session: session.fromPartition("persist:superset"),
-			},
-		});
-
-		const entry: BrowserViewEntry = {
-			view,
-			bounds: { x: 0, y: 0, width: 0, height: 0 },
-			visible: false,
-		};
-		this.views.set(paneId, entry);
-
-		const wc = view.webContents;
-
-		this.setupNavigationEvents(paneId, wc);
-		this.setupConsoleCapture(paneId, wc);
-		this.setupWindowOpenHandler(paneId, wc);
-
-		const finalUrl = this.sanitizeUrl(initialUrl);
-		wc.loadURL(finalUrl);
-
-		return wc.id;
-	}
-
-	destroy(paneId: string): void {
-		const entry = this.views.get(paneId);
-		if (!entry) return;
-
-		// Remove from window if visible
-		if (entry.visible) {
-			const window = this.getWindow?.();
-			if (window && !window.isDestroyed()) {
-				window.contentView.removeChildView(entry.view);
+	register(paneId: string, webContentsId: number): void {
+		// Clean up previous console listener if re-registering with a new webContentsId
+		const prevId = this.paneWebContentsIds.get(paneId);
+		if (prevId != null && prevId !== webContentsId) {
+			const cleanup = this.consoleListeners.get(paneId);
+			if (cleanup) {
+				cleanup();
+				this.consoleListeners.delete(paneId);
 			}
 		}
+		this.paneWebContentsIds.set(paneId, webContentsId);
+		const wc = webContents.fromId(webContentsId);
+		if (wc) {
+			wc.setBackgroundThrottling(false);
+			wc.setWindowOpenHandler(({ url }) => {
+				if (url && url !== "about:blank") {
+					this.emit(`new-window:${paneId}`, url);
+				}
+				return { action: "deny" as const };
+			});
+			this.setupConsoleCapture(paneId, wc);
+		}
+	}
 
-		// Clean up console listener
+	unregister(paneId: string): void {
 		const cleanup = this.consoleListeners.get(paneId);
 		if (cleanup) {
 			cleanup();
 			this.consoleListeners.delete(paneId);
 		}
-
-		// Destroy webContents
-		try {
-			entry.view.webContents.close();
-		} catch {
-			// webContents may already be destroyed
-		}
-
-		this.views.delete(paneId);
+		this.paneWebContentsIds.delete(paneId);
 		this.consoleLogs.delete(paneId);
 	}
 
-	destroyAll(): void {
-		for (const paneId of [...this.views.keys()]) {
-			this.destroy(paneId);
+	unregisterAll(): void {
+		for (const paneId of [...this.paneWebContentsIds.keys()]) {
+			this.unregister(paneId);
 		}
 	}
 
-	setBounds(paneId: string, bounds: Electron.Rectangle): void {
-		const entry = this.views.get(paneId);
-		if (!entry) return;
-
-		entry.bounds = bounds;
-		entry.view.setBounds(bounds);
-	}
-
-	show(paneId: string): void {
-		const entry = this.views.get(paneId);
-		if (!entry || entry.visible) return;
-
-		const window = this.getWindow?.();
-		if (!window || window.isDestroyed()) return;
-
-		window.contentView.addChildView(entry.view);
-		entry.view.setBounds(entry.bounds);
-		entry.visible = true;
-	}
-
-	hide(paneId: string): void {
-		const entry = this.views.get(paneId);
-		if (!entry || !entry.visible) return;
-
-		const window = this.getWindow?.();
-		if (!window || window.isDestroyed()) return;
-
-		window.contentView.removeChildView(entry.view);
-		entry.visible = false;
+	getWebContents(paneId: string): Electron.WebContents | null {
+		const id = this.paneWebContentsIds.get(paneId);
+		if (id == null) return null;
+		const wc = webContents.fromId(id);
+		if (!wc || wc.isDestroyed()) return null;
+		return wc;
 	}
 
 	navigate(paneId: string, url: string): void {
-		const entry = this.views.get(paneId);
-		if (!entry) throw new Error(`No view for pane ${paneId}`);
-
-		const finalUrl = this.sanitizeUrl(url);
-		entry.view.webContents.loadURL(finalUrl);
-	}
-
-	getWebContents(paneId: string): Electron.WebContents | null {
-		const entry = this.views.get(paneId);
-		return entry?.view.webContents ?? null;
+		const wc = this.getWebContents(paneId);
+		if (!wc) throw new Error(`No webContents for pane ${paneId}`);
+		wc.loadURL(sanitizeUrl(url));
 	}
 
 	async screenshot(paneId: string): Promise<string> {
@@ -174,9 +112,8 @@ class BrowserManager extends EventEmitter {
 		const cdpPort = app.commandLine.getSwitchValue("remote-debugging-port");
 		if (!cdpPort) return null;
 
-		const targetUrl = wc.getURL();
-
 		try {
+			const targetUrl = wc.getURL();
 			const res = await fetch(`http://127.0.0.1:${cdpPort}/json`);
 			const targets = (await res.json()) as Array<{
 				id: string;
@@ -185,103 +122,37 @@ class BrowserManager extends EventEmitter {
 				webSocketDebuggerUrl?: string;
 			}>;
 
-			const target = targets.find(
-				(t) => t.type === "page" && t.url === targetUrl,
+			const webviewTargets = targets.filter(
+				(t) => t.type === "page" || t.type === "webview",
 			);
+
+			// Strategy 1: Exact URL match
+			let target = webviewTargets.find((t) => t.url === targetUrl);
+
+			// Strategy 2: Match ignoring trailing slash / fragment differences
+			if (!target && targetUrl) {
+				const normalize = (u: string) =>
+					u.replace(/\/?(#.*)?$/, "").toLowerCase();
+				const normalizedTarget = normalize(targetUrl);
+				target = webviewTargets.find(
+					(t) => normalize(t.url) === normalizedTarget,
+				);
+			}
+
+			// Strategy 3: If only one webview target exists, use it
+			if (!target) {
+				const webviewOnly = webviewTargets.filter((t) => t.type === "webview");
+				if (webviewOnly.length === 1) {
+					target = webviewOnly[0];
+				}
+			}
+
 			if (!target) return null;
 
 			return `http://127.0.0.1:${cdpPort}/devtools/inspector.html?ws=127.0.0.1:${cdpPort}/devtools/page/${target.id}`;
 		} catch {
 			return null;
 		}
-	}
-
-	private sanitizeUrl(url: string): string {
-		if (/^https?:\/\//i.test(url) || url.startsWith("about:")) {
-			return url;
-		}
-		if (url.startsWith("localhost") || url.startsWith("127.0.0.1")) {
-			return `http://${url}`;
-		}
-		if (url.includes(".")) {
-			return `https://${url}`;
-		}
-		return `https://www.google.com/search?q=${encodeURIComponent(url)}`;
-	}
-
-	private setupNavigationEvents(
-		paneId: string,
-		wc: Electron.WebContents,
-	): void {
-		wc.on("did-start-loading", () => {
-			this.emit(`navigation:${paneId}`, {
-				type: "did-start-loading",
-			} satisfies NavigationEvent);
-		});
-
-		wc.on("did-stop-loading", () => {
-			this.emit(`navigation:${paneId}`, {
-				type: "did-stop-loading",
-				url: wc.getURL(),
-				title: wc.getTitle(),
-			} satisfies NavigationEvent);
-		});
-
-		wc.on("did-navigate", (_event, url) => {
-			this.emit(`navigation:${paneId}`, {
-				type: "did-navigate",
-				url,
-				title: wc.getTitle(),
-			} satisfies NavigationEvent);
-		});
-
-		wc.on("did-navigate-in-page", (_event, url) => {
-			this.emit(`navigation:${paneId}`, {
-				type: "did-navigate-in-page",
-				url,
-				title: wc.getTitle(),
-			} satisfies NavigationEvent);
-		});
-
-		wc.on("page-title-updated", (_event, title) => {
-			this.emit(`navigation:${paneId}`, {
-				type: "page-title-updated",
-				title,
-				url: wc.getURL(),
-			} satisfies NavigationEvent);
-		});
-
-		wc.on("page-favicon-updated", (_event, favicons) => {
-			this.emit(`navigation:${paneId}`, {
-				type: "page-favicon-updated",
-				favicons,
-				url: wc.getURL(),
-			} satisfies NavigationEvent);
-		});
-
-		wc.on(
-			"did-fail-load",
-			(_event, errorCode, errorDescription, validatedURL) => {
-				this.emit(`navigation:${paneId}`, {
-					type: "did-fail-load",
-					errorCode,
-					errorDescription,
-					validatedURL,
-				} satisfies NavigationEvent);
-			},
-		);
-	}
-
-	private setupWindowOpenHandler(
-		paneId: string,
-		wc: Electron.WebContents,
-	): void {
-		wc.setWindowOpenHandler(({ url }) => {
-			if (url && url !== "about:blank") {
-				this.emit(`new-window:${paneId}`, url);
-			}
-			return { action: "deny" };
-		});
 	}
 
 	private setupConsoleCapture(paneId: string, wc: Electron.WebContents): void {

@@ -1,6 +1,6 @@
 import { Tooltip, TooltipContent, TooltipTrigger } from "@superset/ui/tooltip";
 import { GlobeIcon } from "lucide-react";
-import { useCallback, useState } from "react";
+import { useCallback } from "react";
 import { TbDeviceDesktop } from "react-icons/tb";
 import type { MosaicBranch } from "react-mosaic-component";
 import { useTabsStore } from "renderer/stores/tabs/store";
@@ -9,7 +9,7 @@ import { BrowserErrorOverlay } from "./components/BrowserErrorOverlay";
 import { BrowserToolbar } from "./components/BrowserToolbar";
 import { BrowserOverflowMenu } from "./components/BrowserToolbar/components/BrowserOverflowMenu";
 import { DEFAULT_BROWSER_URL } from "./constants";
-import { useBrowserNavigation } from "./hooks/useBrowserNavigation";
+import { usePersistentWebview } from "./hooks/usePersistentWebview";
 
 interface BrowserPaneProps {
 	paneId: string;
@@ -45,20 +45,17 @@ export function BrowserPane({
 	const loadError = browserState?.error ?? null;
 	const isBlankPage = currentUrl === "about:blank";
 
-	const [isUrlBarFocused, setIsUrlBarFocused] = useState(false);
-
 	const {
-		contentRef,
+		containerRef,
 		goBack,
 		goForward,
 		reload,
 		navigateTo,
 		canGoBack,
 		canGoForward,
-	} = useBrowserNavigation({
+	} = usePersistentWebview({
 		paneId,
 		initialUrl: currentUrl,
-		isUrlBarFocused,
 	});
 
 	const handleOpenDevTools = useCallback(() => {
@@ -86,7 +83,6 @@ export function BrowserPane({
 						onGoForward={goForward}
 						onReload={reload}
 						onNavigate={navigateTo}
-						onEditingChange={setIsUrlBarFocused}
 					/>
 					<div className="flex items-center shrink-0">
 						<div className="mx-1.5 h-3.5 w-px bg-muted-foreground/60" />
@@ -120,7 +116,7 @@ export function BrowserPane({
 			)}
 		>
 			<div className="relative flex flex-1 h-full">
-				<div ref={contentRef} className="w-full h-full" style={{ flex: 1 }} />
+				<div ref={containerRef} className="w-full h-full" style={{ flex: 1 }} />
 				{loadError && !isLoading && (
 					<BrowserErrorOverlay error={loadError} onRetry={reload} />
 				)}

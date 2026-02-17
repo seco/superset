@@ -1,70 +1,23 @@
 import { observable } from "@trpc/server/observable";
-import type { BrowserWindow } from "electron";
 import { session } from "electron";
 import { browserManager } from "main/lib/browser/browser-manager";
-import type { NavigationEvent } from "shared/browser-types";
 import { z } from "zod";
 import { publicProcedure, router } from "../..";
 
-export const createBrowserRouter = (_getWindow: () => BrowserWindow | null) => {
+export const createBrowserRouter = () => {
 	return router({
-		create: publicProcedure
-			.input(z.object({ paneId: z.string(), initialUrl: z.string() }))
+		register: publicProcedure
+			.input(z.object({ paneId: z.string(), webContentsId: z.number() }))
 			.mutation(({ input }) => {
-				const webContentsId = browserManager.create(
-					input.paneId,
-					input.initialUrl,
-				);
-				return { webContentsId };
+				browserManager.register(input.paneId, input.webContentsId);
+				return { success: true };
 			}),
 
-		destroy: publicProcedure
+		unregister: publicProcedure
 			.input(z.object({ paneId: z.string() }))
 			.mutation(({ input }) => {
-				browserManager.destroy(input.paneId);
+				browserManager.unregister(input.paneId);
 				return { success: true };
-			}),
-
-		setBounds: publicProcedure
-			.input(
-				z.object({
-					paneId: z.string(),
-					bounds: z.object({
-						x: z.number(),
-						y: z.number(),
-						width: z.number(),
-						height: z.number(),
-					}),
-				}),
-			)
-			.mutation(({ input }) => {
-				browserManager.setBounds(input.paneId, input.bounds);
-				return { success: true };
-			}),
-
-		setVisibility: publicProcedure
-			.input(z.object({ paneId: z.string(), visible: z.boolean() }))
-			.mutation(({ input }) => {
-				if (input.visible) {
-					browserManager.show(input.paneId);
-				} else {
-					browserManager.hide(input.paneId);
-				}
-				return { success: true };
-			}),
-
-		onNavigation: publicProcedure
-			.input(z.object({ paneId: z.string() }))
-			.subscription(({ input }) => {
-				return observable<NavigationEvent>((emit) => {
-					const handler = (event: NavigationEvent) => {
-						emit.next(event);
-					};
-					browserManager.on(`navigation:${input.paneId}`, handler);
-					return () => {
-						browserManager.off(`navigation:${input.paneId}`, handler);
-					};
-				});
 			}),
 
 		navigate: publicProcedure
