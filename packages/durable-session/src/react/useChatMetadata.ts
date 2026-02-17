@@ -1,4 +1,5 @@
-import { useSyncExternalStore, useCallback } from "react";
+import { useCallback, useMemo } from "react";
+import { useLiveQuery } from "@tanstack/react-db";
 import type { SessionDB } from "../collection";
 import type { ChunkRow, RawPresenceRow, AgentValue } from "../schema";
 
@@ -50,6 +51,7 @@ export interface UseChatMetadataOptions {
 	sessionDB: SessionDB;
 	proxyUrl: string;
 	sessionId: string;
+	getHeaders?: () => Record<string, string>;
 }
 
 export interface UseChatMetadataReturn {
@@ -87,36 +89,30 @@ export interface UseChatMetadataReturn {
 export function useChatMetadata(
 	options: UseChatMetadataOptions,
 ): UseChatMetadataReturn {
-	const { sessionDB, proxyUrl, sessionId } = options;
+	const { sessionDB, proxyUrl, sessionId, getHeaders } = options;
 
-	const url = (path: string) =>
-		`${proxyUrl}/api/streams/v1/sessions/${sessionId}${path}`;
+	const authHeaders = getHeaders ?? (() => ({}));
+	const configUrl = `${proxyUrl}/api/streams/v1/sessions/${sessionId}/config`;
 
 	// -----------------------------------------------------------------------
-	// Config + Title — derived from config events in the chunk stream
+	// Config + Title — derived from config-type chunks
 	// -----------------------------------------------------------------------
 
-	const subscribeToChunks = useCallback(
-		(callback: () => void) => {
-			const subscription = sessionDB.collections.chunks.subscribeChanges(
-				() => callback(),
-			);
-			return () => subscription.unsubscribe();
-		},
-		[sessionDB],
+	const { data: chunks } = useLiveQuery(
+		(q) =>
+			q
+				.from({ chunks: sessionDB.collections.chunks })
+				.select(({ chunks }) => chunks),
+		[sessionDB.collections.chunks],
 	);
 
-	const getConfigSnapshot = useCallback((): {
-		title: string | null;
-		config: SessionConfig;
-	} => {
+	const { title, config } = useMemo(() => {
 		let title: string | null = null;
 		let config: SessionConfig = {};
 
-		for (const row of sessionDB.collections.chunks.values()) {
-			const chunkRow = row as ChunkRow;
+		for (const row of (chunks ?? []) as ChunkRow[]) {
 			try {
-				const parsed = JSON.parse(chunkRow.chunk);
+				const parsed = JSON.parse(row.chunk);
 				if (parsed.type === "config") {
 					if (typeof parsed.model === "string") config.model = parsed.model;
 					if (typeof parsed.permissionMode === "string")
@@ -131,108 +127,93 @@ export function useChatMetadata(
 					if (typeof parsed.title === "string") title = parsed.title;
 				}
 			} catch {
-				// skip
+				// skip unparseable
 			}
 		}
 
 		return { title, config };
-	}, [sessionDB]);
-
-	const { title, config } = useSyncExternalStore(
-		subscribeToChunks,
-		getConfigSnapshot,
-		() => ({ title: null, config: {} }),
-	);
+	}, [chunks]);
 
 	const updateConfig = useCallback(
 		(newConfig: SessionConfig) => {
-			fetch(url("/config"), {
+			fetch(configUrl, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...authHeaders() },
 				body: JSON.stringify(newConfig),
-				credentials: "include",
 			}).catch(console.error);
 		},
-		[url],
+		[configUrl, authHeaders],
 	);
 
 	// -----------------------------------------------------------------------
-	// Presence — users + agents from presence/agents collections
+	// Presence — users from presence collection
 	// -----------------------------------------------------------------------
 
-	const subscribeToPresence = useCallback(
-		(callback: () => void) => {
-			const subscription = sessionDB.collections.presence.subscribeChanges(
-				() => callback(),
-			);
-			return () => subscription.unsubscribe();
-		},
-		[sessionDB],
+	const { data: presenceRows } = useLiveQuery(
+		(q) =>
+			q
+				.from({ presence: sessionDB.collections.presence })
+				.select(({ presence }) => presence),
+		[sessionDB.collections.presence],
 	);
 
-	const getPresenceSnapshot = useCallback((): ChatUserPresence[] => {
-		const rows = Array.from(
-			sessionDB.collections.presence.values(),
-		) as RawPresenceRow[];
-		return rows
-			.filter((r) => r.status !== "offline")
-			.map((r) => ({
-				userId: r.userId,
-				deviceId: r.deviceId,
+	const users = useMemo(
+		(): ChatUserPresence[] =>
+			((presenceRows ?? []) as RawPresenceRow[])
+				.filter((r) => r.status !== "offline")
+				.map((r) => ({
+					userId: r.userId,
+					deviceId: r.deviceId,
+					name: r.name,
+					status: r.status,
+					lastSeenAt: r.lastSeenAt,
+					draft: r.draft,
+					cursorPosition: r.cursorPosition,
+				})),
+		[presenceRows],
+	);
+
+	// -----------------------------------------------------------------------
+	// Agents — from agents collection
+	// -----------------------------------------------------------------------
+
+	const { data: agentRows } = useLiveQuery(
+		(q) =>
+			q
+				.from({ agents: sessionDB.collections.agents })
+				.select(({ agents }) => agents),
+		[sessionDB.collections.agents],
+	);
+
+	const agents = useMemo(
+		(): ChatAgentPresence[] =>
+			((agentRows ?? []) as AgentValue[]).map((r) => ({
+				agentId: r.agentId,
 				name: r.name,
-				status: r.status,
-				lastSeenAt: r.lastSeenAt,
-				draft: r.draft,
-				cursorPosition: r.cursorPosition,
-			}));
-	}, [sessionDB]);
-
-	const subscribeToAgents = useCallback(
-		(callback: () => void) => {
-			const subscription = sessionDB.collections.agents.subscribeChanges(
-				() => callback(),
-			);
-			return () => subscription.unsubscribe();
-		},
-		[sessionDB],
+				endpoint: r.endpoint,
+				triggers: r.triggers,
+				model: r.model,
+				generationMessageId: r.generationMessageId,
+			})),
+		[agentRows],
 	);
 
-	const getAgentsSnapshot = useCallback((): ChatAgentPresence[] => {
-		const rows = Array.from(
-			sessionDB.collections.agents.values(),
-		) as AgentValue[];
-		return rows.map((r) => ({
-			agentId: r.agentId,
-			name: r.name,
-			endpoint: r.endpoint,
-			triggers: r.triggers,
-			model: r.model,
-			generationMessageId: r.generationMessageId,
-		}));
-	}, [sessionDB]);
+	// -----------------------------------------------------------------------
+	// Presence mutations
+	// -----------------------------------------------------------------------
 
-	const users = useSyncExternalStore(
-		subscribeToPresence,
-		getPresenceSnapshot,
-		() => [],
-	);
-	const agents = useSyncExternalStore(
-		subscribeToAgents,
-		getAgentsSnapshot,
-		() => [],
-	);
+	const basePresenceUrl = `${proxyUrl}/api/streams/v1/sessions/${sessionId}`;
 
 	const updateStatus = useCallback(
 		(userId: string, deviceId: string, status: ChatUserPresence["status"]) => {
 			const endpoint = status === "offline" ? "logout" : "login";
-			fetch(url(`/${endpoint}`), {
+			fetch(`${basePresenceUrl}/${endpoint}`, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...authHeaders() },
 				body: JSON.stringify({ userId, deviceId, status }),
-				credentials: "include",
 			}).catch(console.error);
 		},
-		[url],
+		[basePresenceUrl, authHeaders],
 	);
 
 	const updateDraft = useCallback(
@@ -242,9 +223,9 @@ export function useChatMetadata(
 			text: string,
 			cursorPosition?: number,
 		) => {
-			fetch(url("/login"), {
+			fetch(`${basePresenceUrl}/login`, {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...authHeaders() },
 				body: JSON.stringify({
 					userId,
 					deviceId,
@@ -252,15 +233,18 @@ export function useChatMetadata(
 					draft: text,
 					cursorPosition,
 				}),
-				credentials: "include",
 			}).catch(console.error);
 		},
-		[url],
+		[basePresenceUrl, authHeaders],
 	);
 
-	const drafts = users
-		.filter((u) => u.draft && u.draft.length > 0)
-		.map((u) => ({ userId: u.userId, name: u.name, text: u.draft! }));
+	const drafts = useMemo(
+		() =>
+			users
+				.filter((u) => u.draft && u.draft.length > 0)
+				.map((u) => ({ userId: u.userId, name: u.name, text: u.draft! })),
+		[users],
+	);
 
 	return {
 		title,

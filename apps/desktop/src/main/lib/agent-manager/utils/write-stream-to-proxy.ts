@@ -18,7 +18,8 @@ function getStreamHeaders(): Record<string, string> {
 }
 
 function streamUrl(sessionId: string): string {
-	return `${env.NEXT_PUBLIC_STREAMS_URL}/sessions/${sessionId}`;
+	const base = env.DURABLE_STREAMS_URL ?? env.NEXT_PUBLIC_STREAMS_URL;
+	return `${base}/sessions/${sessionId}`;
 }
 
 export async function ensureProxySession(sessionId: string): Promise<void> {

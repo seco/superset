@@ -6,6 +6,7 @@ import { useChatMetadata } from "@superset/durable-session/react";
 import { useChat } from "@ai-sdk/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { env } from "renderer/env.renderer";
+import { getAuthToken } from "renderer/lib/auth-client";
 import { ChatInputFooter } from "./components/ChatInputFooter";
 import { MessageList } from "./components/MessageList";
 import { DEFAULT_MODEL } from "./constants";
@@ -17,6 +18,11 @@ import type {
 } from "./types";
 
 const apiUrl = env.NEXT_PUBLIC_API_URL;
+
+function getAuthHeaders(): Record<string, string> {
+	const token = getAuthToken();
+	return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 export function ChatInterface({ sessionId, cwd }: ChatInterfaceProps) {
 	const [selectedModel, setSelectedModel] =
@@ -32,6 +38,7 @@ export function ChatInterface({ sessionId, cwd }: ChatInterfaceProps) {
 		return createSessionDB({
 			sessionId,
 			baseUrl: `${apiUrl}/api/streams`,
+			headers: getAuthHeaders(),
 		});
 	}, [sessionId]);
 
@@ -40,6 +47,7 @@ export function ChatInterface({ sessionId, cwd }: ChatInterfaceProps) {
 		sessionDB,
 		proxyUrl: apiUrl,
 		sessionId,
+		getHeaders: getAuthHeaders,
 	});
 
 	// Post initial config on mount
@@ -82,7 +90,7 @@ export function ChatInterface({ sessionId, cwd }: ChatInterfaceProps) {
 			thinkingEnabled,
 			cwd,
 		});
-	}, [selectedModel.id, permissionMode, thinkingEnabled, sessionId, cwd, metadata]);
+	}, [selectedModel.id, permissionMode, thinkingEnabled, sessionId, cwd, metadata.updateConfig]);
 
 	// DurableChatTransport: bridges SessionDB -> useChat
 	// Abort is handled internally by the transport (sends control event)
@@ -92,6 +100,7 @@ export function ChatInterface({ sessionId, cwd }: ChatInterfaceProps) {
 			proxyUrl: apiUrl,
 			sessionId,
 			sessionDB,
+			getHeaders: getAuthHeaders,
 		});
 	}, [sessionId, sessionDB]);
 

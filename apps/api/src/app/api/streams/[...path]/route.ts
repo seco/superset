@@ -80,6 +80,17 @@ function getDurableStream(sessionId: string) {
 	});
 }
 
+async function ensureStream(sessionId: string) {
+	const stream = getDurableStream(sessionId);
+	try {
+		await stream.create({ contentType: "application/json" });
+		console.log(`[streams] Created stream for session ${sessionId}`);
+	} catch (err) {
+		console.log(`[streams] Stream create for ${sessionId} returned:`, err);
+	}
+	return stream;
+}
+
 // ---------------------------------------------------------------------------
 // GET — Proxy SSE reads to hosted Durable Streams
 // ---------------------------------------------------------------------------
@@ -391,7 +402,7 @@ async function handleSendMessage(
 		},
 	});
 
-	const stream = getDurableStream(sessionId);
+	const stream = await ensureStream(sessionId);
 	await stream.append(JSON.stringify(event));
 
 	// Update last_active_at

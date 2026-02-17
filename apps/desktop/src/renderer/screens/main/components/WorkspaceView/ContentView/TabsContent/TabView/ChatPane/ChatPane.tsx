@@ -1,7 +1,7 @@
 import { useCallback } from "react";
 import type { MosaicBranch } from "react-mosaic-component";
 import { electronTrpc } from "renderer/lib/electron-trpc";
-import { authClient } from "renderer/lib/auth-client";
+import { authClient, getAuthToken } from "renderer/lib/auth-client";
 import { env } from "renderer/env.renderer";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import { generateId } from "renderer/stores/tabs/utils";
@@ -63,10 +63,13 @@ export function ChatPane({
 		const newSessionId = generateId("chat-session");
 
 		// Create session in DB + durable stream
+		const token = getAuthToken();
 		await fetch(`${apiUrl}/api/streams/v1/sessions/${newSessionId}`, {
 			method: "PUT",
-			headers: { "Content-Type": "application/json" },
-			credentials: "include",
+			headers: {
+				"Content-Type": "application/json",
+				...(token ? { Authorization: `Bearer ${token}` } : {}),
+			},
 			body: JSON.stringify({
 				organizationId,
 				deviceId: deviceInfo?.deviceId,
@@ -78,9 +81,13 @@ export function ChatPane({
 
 	const handleDeleteSession = useCallback(
 		(sessionIdToDelete: string) => {
+			const token = getAuthToken();
 			fetch(
 				`${apiUrl}/api/streams/v1/stream/sessions/${sessionIdToDelete}`,
-				{ method: "DELETE", credentials: "include" },
+				{
+					method: "DELETE",
+					headers: token ? { Authorization: `Bearer ${token}` } : {},
+				},
 			).catch(console.error);
 
 			if (sessionIdToDelete === sessionId) {

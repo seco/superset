@@ -11,17 +11,20 @@ export interface DurableChatTransportOptions {
 	proxyUrl: string;
 	sessionId: string;
 	sessionDB: SessionDB;
+	getHeaders?: () => Record<string, string>;
 }
 
 export class DurableChatTransport implements ChatTransport<UIMessage> {
 	private readonly proxyUrl: string;
 	private readonly sessionId: string;
 	private readonly sessionDB: SessionDB;
+	private readonly getHeaders: () => Record<string, string>;
 
 	constructor(options: DurableChatTransportOptions) {
 		this.proxyUrl = options.proxyUrl;
 		this.sessionId = options.sessionId;
 		this.sessionDB = options.sessionDB;
+		this.getHeaders = options.getHeaders ?? (() => ({}));
 	}
 
 	private url(path: string): string {
@@ -48,10 +51,9 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 
 			await fetch(this.url("/messages"), {
 				method: "POST",
-				headers: { "Content-Type": "application/json" },
+				headers: { "Content-Type": "application/json", ...this.getHeaders() },
 				body: JSON.stringify({ content, messageId: lastMessage.id }),
 				signal: abortSignal,
-				credentials: "include",
 			});
 		}
 
@@ -73,9 +75,8 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 	private sendControl(action: string): void {
 		fetch(this.url("/control"), {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: { "Content-Type": "application/json", ...this.getHeaders() },
 			body: JSON.stringify({ action }),
-			credentials: "include",
 		}).catch(console.error);
 	}
 

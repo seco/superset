@@ -10,6 +10,8 @@ export function useAgentManager() {
 	const { data: session } = authClient.useSession();
 	const organizationId = session?.session?.activeOrganizationId;
 	const startMutation = electronTrpc.agentManager.start.useMutation();
+	const mutateRef = useRef(startMutation.mutate);
+	mutateRef.current = startMutation.mutate;
 	const prevOrgRef = useRef<string | null>(null);
 
 	useEffect(() => {
@@ -17,6 +19,6 @@ export function useAgentManager() {
 		if (organizationId === prevOrgRef.current) return;
 
 		prevOrgRef.current = organizationId;
-		startMutation.mutate({ organizationId });
-	}, [organizationId, startMutation]);
+		mutateRef.current({ organizationId });
+	}, [organizationId]);
 }
