@@ -62,7 +62,7 @@ async function requireAuth(request: Request) {
 }
 
 function streamUrl(sessionId: string) {
-	return `${env.DURABLE_STREAMS_URL}/v1/stream/sessions/${sessionId}`;
+	return `${env.DURABLE_STREAMS_URL}/sessions/${sessionId}`;
 }
 
 function parsePath(request: Request): string[] {
@@ -527,6 +527,13 @@ async function handleConfig(
 		permissionMode?: string;
 		thinkingEnabled?: boolean;
 		cwd?: string;
+		availableModels?: Array<{ id: string; name: string; provider: string }>;
+		slashCommands?: Array<{
+			name: string;
+			description: string;
+			argumentHint: string;
+		}>;
+		title?: string;
 	};
 
 	const messageId = crypto.randomUUID();

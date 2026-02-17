@@ -1,6 +1,7 @@
 import { createSessionDB, type SessionDB } from "@superset/durable-session";
 import type { ChunkRow } from "@superset/durable-session";
 import { env } from "main/env.main";
+import { getAvailableModels } from "./models";
 import {
 	runAgent,
 	resumeAgent,
@@ -95,9 +96,32 @@ export class StreamWatcher {
 
 		this.unsubscribe = () => subscription.unsubscribe();
 
+		// Write available models to the stream so clients can display them
+		void this.writeInitialConfig(apiUrl);
+
 		console.log(
 			`[stream-watcher] Started watching session ${this.sessionId}`,
 		);
+	}
+
+	private async writeInitialConfig(apiUrl: string): Promise<void> {
+		try {
+			await fetch(
+				`${apiUrl}/api/streams/v1/sessions/${this.sessionId}/config`,
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						availableModels: getAvailableModels(),
+					}),
+				},
+			);
+		} catch (err) {
+			console.error(
+				`[stream-watcher] Failed to write initial config for ${this.sessionId}:`,
+				err,
+			);
+		}
 	}
 
 	private handleChunk(

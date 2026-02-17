@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import type { MosaicBranch } from "react-mosaic-component";
 import { electronTrpc } from "renderer/lib/electron-trpc";
+import { authClient } from "renderer/lib/auth-client";
 import { env } from "renderer/env.renderer";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import { generateId } from "renderer/stores/tabs/utils";
@@ -40,6 +41,9 @@ export function ChatPane({
 	const switchChatSession = useTabsStore((s) => s.switchChatSession);
 	const sessionId = pane?.chat?.sessionId ?? "";
 
+	const { data: session } = authClient.useSession();
+	const { data: deviceInfo } = electronTrpc.auth.getDeviceInfo.useQuery();
+
 	const { data: workspace } = electronTrpc.workspaces.get.useQuery(
 		{ id: workspaceId },
 		{ enabled: !!workspaceId },
@@ -52,10 +56,25 @@ export function ChatPane({
 		[paneId, switchChatSession],
 	);
 
-	const handleNewChat = useCallback(() => {
+	const handleNewChat = useCallback(async () => {
+		const organizationId = session?.session?.activeOrganizationId;
+		if (!organizationId) return;
+
 		const newSessionId = generateId("chat-session");
+
+		// Create session in DB + durable stream
+		await fetch(`${apiUrl}/api/streams/v1/sessions/${newSessionId}`, {
+			method: "PUT",
+			headers: { "Content-Type": "application/json" },
+			credentials: "include",
+			body: JSON.stringify({
+				organizationId,
+				deviceId: deviceInfo?.deviceId,
+			}),
+		});
+
 		switchChatSession(paneId, newSessionId);
-	}, [paneId, switchChatSession]);
+	}, [paneId, switchChatSession, session?.session?.activeOrganizationId, deviceInfo?.deviceId]);
 
 	const handleDeleteSession = useCallback(
 		(sessionIdToDelete: string) => {
@@ -65,7 +84,7 @@ export function ChatPane({
 			).catch(console.error);
 
 			if (sessionIdToDelete === sessionId) {
-				handleNewChat();
+				void handleNewChat();
 			}
 		},
 		[sessionId, handleNewChat],
