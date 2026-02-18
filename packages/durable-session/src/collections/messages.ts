@@ -4,6 +4,7 @@
  * Architecture:
  * - chunks → (subquery: groupBy + count/min) → messages
  * - fn.select scans source collection for matching chunks, then materializes
+ * - fn.where filters out non-content messages (config, control, etc.)
  *
  * Since @tanstack/db@0.5.25 lacks `collect()`, we use a closure scan
  * over the chunksCollection to gather rows per messageId.
@@ -15,6 +16,29 @@ import { materializeMessage } from "../materialize";
 import type { ChunkRow } from "../schema";
 import type { MessageRow } from "../types";
 
+/** Chunk types that are non-content signals — not real messages. */
+const NON_CONTENT_TYPES = new Set([
+	"config",
+	"control",
+	"tool-result",
+	"approval-response",
+	"tool-approval",
+]);
+
+/**
+ * Returns true if this chunk group is a non-content event
+ * (config, control, tool-result, approval-response) that should
+ * not appear as a message in the UI.
+ */
+function isNonContentChunk(row: ChunkRow): boolean {
+	try {
+		const parsed = JSON.parse(row.chunk) as { type?: string };
+		return NON_CONTENT_TYPES.has(parsed.type ?? "");
+	} catch {
+		return false;
+	}
+}
+
 export interface MessagesCollectionOptions {
 	chunksCollection: Collection<ChunkRow>;
 }
@@ -25,6 +49,9 @@ export interface MessagesCollectionOptions {
  * `count(chunk.id)` changes on each new chunk → triggers fn.select
  * re-evaluation for that group only. The fn.select closure scans
  * the source chunksCollection for all rows matching the messageId.
+ *
+ * Non-content events (config, control, tool-result, approval-response)
+ * are filtered out so they don't render as empty bubbles.
  */
 export function createMessagesCollection(
 	options: MessagesCollectionOptions,
@@ -45,8 +72,17 @@ export function createMessagesCollection(
 			return q
 				.from({ grouped })
 				.orderBy(({ grouped }) => grouped.startedAt, "asc")
+				.fn.where(({ grouped }) => {
+					// Check the first chunk for this messageId — if it's a
+					// non-content type, exclude the entire group.
+					for (const row of chunksCollection.values()) {
+						if (row.messageId === grouped.messageId) {
+							return !isNonContentChunk(row);
+						}
+					}
+					return false;
+				})
 				.fn.select(({ grouped }) => {
-					// Scan source collection for this message's chunks
 					const rows: ChunkRow[] = [];
 					for (const row of chunksCollection.values()) {
 						if (row.messageId === grouped.messageId) rows.push(row);
