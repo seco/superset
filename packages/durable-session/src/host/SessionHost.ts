@@ -150,7 +150,14 @@ export class SessionHost {
 
 		// Seed seenMessageIds from existing chunks (prevents re-triggering history).
 		// Also replay the latest config event.
+		// Track user messages and the latest assistant timestamp for catch-up.
 		let latestConfig: Record<string, unknown> | null = null;
+		let lastAssistantTime = "";
+		const userMessages: Array<{
+			messageId: string;
+			message: UIMessage;
+			createdAt: string;
+		}> = [];
 
 		for (const row of chunks.values()) {
 			const chunkRow = row as ChunkRow;
@@ -161,6 +168,17 @@ export class SessionHost {
 					parsed.message?.role === "user"
 				) {
 					this.seenMessageIds.add(chunkRow.messageId);
+					userMessages.push({
+						messageId: chunkRow.messageId,
+						message: parsed.message as UIMessage,
+						createdAt: chunkRow.createdAt,
+					});
+				}
+				if (
+					chunkRow.role === "assistant" &&
+					chunkRow.createdAt > lastAssistantTime
+				) {
+					lastAssistantTime = chunkRow.createdAt;
 				}
 				if (parsed.type === "config") {
 					latestConfig = parsed;
@@ -193,6 +211,25 @@ export class SessionHost {
 
 		this.unsubscribe = () => subscription.unsubscribe();
 		this.emit("connected");
+
+		// Catch-up: emit pending user messages that have no assistant response.
+		// This handles the race where a message was written to the stream before
+		// the SessionHost started (e.g. first message triggers session creation,
+		// but the watcher only starts after Electric syncs the session_hosts row).
+		const pending = userMessages.filter(
+			(m) => m.createdAt > lastAssistantTime,
+		);
+		if (pending.length > 0) {
+			pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+			const latest = pending.at(-1)!;
+			console.log(
+				`[SessionHost] Catch-up: emitting pending message ${latest.messageId}`,
+			);
+			this.emit("message", {
+				messageId: latest.messageId,
+				message: latest.message,
+			});
+		}
 	}
 
 	stop(): void {

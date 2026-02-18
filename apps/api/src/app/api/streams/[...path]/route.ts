@@ -578,25 +578,10 @@ async function handleProducerWrite(
 
 	const body = await request.arrayBuffer();
 
-	console.log(`[proxy] Producer write → ${upstream}`, {
-		bodyLen: body.byteLength,
-		headers: Object.fromEntries(
-			Object.entries(headers).filter(([k]) => k !== "Authorization"),
-		),
-	});
-
 	const response = await fetch(upstream, {
 		method: "POST",
 		headers,
 		body,
-	});
-
-	const respBody = await response.arrayBuffer();
-
-	console.log(`[proxy] Producer response: ${response.status}`, {
-		headers: Object.fromEntries(response.headers.entries()),
-		bodyLen: respBody.byteLength,
-		bodyPreview: new TextDecoder().decode(respBody.slice(0, 500)),
 	});
 
 	const respHeaders = new Headers();
@@ -605,6 +590,11 @@ async function handleProducerWrite(
 		if (v) respHeaders.set(h, v);
 	}
 
+	if (response.status === 204) {
+		return new Response(null, { status: 204, headers: respHeaders });
+	}
+
+	const respBody = await response.arrayBuffer();
 	return new Response(respBody, {
 		status: response.status,
 		headers: respHeaders,

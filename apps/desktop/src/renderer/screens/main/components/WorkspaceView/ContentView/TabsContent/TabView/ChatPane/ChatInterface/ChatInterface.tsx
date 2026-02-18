@@ -1,10 +1,14 @@
-import { useChat } from "@ai-sdk/react";
 import {
+	createMessagesCollection,
 	createSessionDB,
-	DurableChatTransport,
+	messageRowToUIMessage,
+	type SessionDB,
 } from "@superset/durable-session";
 import type { SlashCommand } from "@superset/durable-session/react";
-import { useChatMetadata } from "@superset/durable-session/react";
+import {
+	useChatMetadata,
+	useCollectionData,
+} from "@superset/durable-session/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { env } from "renderer/env.renderer";
 import { getAuthToken } from "renderer/lib/auth-client";
@@ -114,17 +118,15 @@ function EmptyChatInterface({
 	);
 }
 
+// ---------------------------------------------------------------------------
+// ActiveChatInterface — handles preload, then delegates to ChatSession
+// ---------------------------------------------------------------------------
+
 function ActiveChatInterface({
 	sessionId,
 	cwd,
 }: Omit<ChatInterfaceProps, "sessionId"> & { sessionId: string }) {
-	const [selectedModel, setSelectedModel] =
-		useState<ModelOption>(DEFAULT_MODEL);
-	const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
-	const [thinkingEnabled, setThinkingEnabled] = useState(false);
-	const [permissionMode, setPermissionMode] =
-		useState<PermissionMode>("bypassPermissions");
-	const [error, setError] = useState<string | null>(null);
+	const [ready, setReady] = useState(false);
 
 	const sessionDB = useMemo(() => {
 		return createSessionDB({
@@ -133,6 +135,53 @@ function ActiveChatInterface({
 			headers: getAuthHeaders(),
 		});
 	}, [sessionId]);
+
+	useEffect(() => {
+		let cancelled = false;
+		sessionDB
+			.preload()
+			.then(() => {
+				if (!cancelled) setReady(true);
+			})
+			.catch((err) => console.error("[ChatInterface] preload failed:", err));
+		return () => {
+			cancelled = true;
+			setReady(false);
+			sessionDB.close();
+		};
+	}, [sessionDB]);
+
+	if (!ready) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center bg-background">
+				<p className="text-muted-foreground text-sm">Connecting…</p>
+			</div>
+		);
+	}
+
+	return <ChatSession sessionId={sessionId} sessionDB={sessionDB} cwd={cwd} />;
+}
+
+// ---------------------------------------------------------------------------
+// ChatSession — only mounts after preload is complete (no re-render storm)
+// ---------------------------------------------------------------------------
+
+function ChatSession({
+	sessionId,
+	sessionDB,
+	cwd,
+}: {
+	sessionId: string;
+	sessionDB: SessionDB;
+	cwd: string;
+}) {
+	const [selectedModel, setSelectedModel] =
+		useState<ModelOption>(DEFAULT_MODEL);
+	const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
+	const [thinkingEnabled, setThinkingEnabled] = useState(false);
+	const [permissionMode, setPermissionMode] =
+		useState<PermissionMode>("bypassPermissions");
+	const [error, setError] = useState<string | null>(null);
 
 	const metadata = useChatMetadata({
 		sessionDB,
@@ -192,40 +241,62 @@ function ActiveChatInterface({
 		metadata.updateConfig,
 	]);
 
-	const transport = useMemo(() => {
-		return new DurableChatTransport({
-			proxyUrl: apiUrl,
-			sessionId,
-			sessionDB,
-			getHeaders: getAuthHeaders,
-		});
-	}, [sessionId, sessionDB]);
+	// Materialized messages from the chunks collection
+	const messagesCollection = useMemo(
+		() =>
+			createMessagesCollection({
+				chunksCollection: sessionDB.collections.chunks,
+			}),
+		[sessionDB],
+	);
 
-	const chat = useChat({
-		id: sessionId,
-		transport,
-		experimental_throttle: 50,
-	});
+	const messageRows = useCollectionData(messagesCollection);
+	const messages = useMemo(
+		() => messageRows.map(messageRowToUIMessage),
+		[messageRows],
+	);
 
+	// Streaming if the last assistant message is incomplete
+	const lastRow = messageRows[messageRows.length - 1];
 	const isStreaming =
-		chat.status === "streaming" || chat.status === "submitted";
+		lastRow !== undefined &&
+		lastRow.role === "assistant" &&
+		!lastRow.isComplete;
 
 	const handleSend = useCallback(
-		(message: { text: string }) => {
+		async (message: { text: string }) => {
 			const text = message.text.trim();
 			if (!text) return;
 			setError(null);
-			chat.sendMessage({ text });
+			try {
+				await fetch(`${apiUrl}/api/streams/v1/sessions/${sessionId}/messages`, {
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						...getAuthHeaders(),
+					},
+					body: JSON.stringify({ content: text }),
+				});
+			} catch (err) {
+				setError(err instanceof Error ? err.message : "Failed to send message");
+			}
 		},
-		[chat],
+		[sessionId],
 	);
 
 	const handleStop = useCallback(
 		(e: React.MouseEvent) => {
 			e.preventDefault();
-			chat.stop();
+			fetch(`${apiUrl}/api/streams/v1/sessions/${sessionId}/control`, {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					...getAuthHeaders(),
+				},
+				body: JSON.stringify({ action: "abort" }),
+			}).catch(console.error);
 		},
-		[chat],
+		[sessionId],
 	);
 
 	const handleSlashCommandSend = useCallback(
@@ -237,7 +308,7 @@ function ActiveChatInterface({
 
 	return (
 		<div className="flex h-full flex-col bg-background">
-			<MessageList messages={chat.messages} isStreaming={isStreaming} />
+			<MessageList messages={messages} isStreaming={isStreaming} />
 			<ChatInputFooter
 				cwd={cwd}
 				error={error}

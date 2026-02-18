@@ -13,3 +13,5 @@ export {
 	type UseChatPresenceReturn,
 	useChatPresence,
 } from "./useChatPresence";
+export { useCollectionData } from "./useCollectionData";
+export { useMessages } from "./useMessages";

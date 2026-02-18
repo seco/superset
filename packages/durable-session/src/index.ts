@@ -4,6 +4,15 @@ export {
 	type SessionDB,
 	type SessionDBConfig,
 } from "./collection";
+export { createMessagesCollection } from "./collections/messages";
+export {
+	extractTextContent,
+	isAssistantMessage,
+	isUserMessage,
+	materializeMessage,
+	messageRowToUIMessage,
+	parseChunk,
+} from "./materialize";
 export {
 	type AgentValue,
 	agentValueSchema,
@@ -20,3 +29,10 @@ export {
 	DurableChatTransport,
 	type DurableChatTransportOptions,
 } from "./transport";
+export type {
+	AnyUIMessagePart,
+	DurableStreamChunk,
+	MessageRole,
+	MessageRow,
+	WholeMessageChunk,
+} from "./types";

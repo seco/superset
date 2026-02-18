@@ -40,6 +40,10 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 			abortSignal: AbortSignal | undefined;
 		} & ChatRequestOptions,
 	): Promise<ReadableStream<UIMessageChunk>> => {
+		console.log("[DurableChatTransport] sendMessages called", {
+			trigger: options.trigger,
+			messageCount: options.messages.length,
+		});
 		const { messages, abortSignal } = options;
 		const lastMessage = messages[messages.length - 1];
 
@@ -65,6 +69,7 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 	reconnectToStream = async (
 		_options: { chatId: string } & ChatRequestOptions,
 	): Promise<ReadableStream<UIMessageChunk> | null> => {
+		console.log("[DurableChatTransport] reconnectToStream called");
 		return this.createChunkStream(undefined);
 	};
 
@@ -90,9 +95,18 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 			seenKeys.add((row as ChunkRow).id);
 		}
 
+		console.log(
+			"[DurableChatTransport] createChunkStream — seenKeys:",
+			seenKeys.size,
+		);
+
 		return new ReadableStream<UIMessageChunk>({
 			start: (controller) => {
 				const subscription = chunks.subscribeChanges((changes) => {
+					console.log(
+						"[DurableChatTransport] subscribeChanges fired — changes:",
+						changes.length,
+					);
 					for (const change of changes) {
 						if (change.type === "insert" || change.type === "update") {
 							const row = change.value as ChunkRow;
@@ -101,6 +115,13 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 
 							try {
 								const parsed = JSON.parse(row.chunk);
+
+								console.log(
+									"[DurableChatTransport] enqueuing chunk type:",
+									parsed.type,
+									"role:",
+									row.role,
+								);
 
 								if (parsed.type === "whole-message") {
 									// User messages stored as whole — convert to UIMessageChunk sequence
