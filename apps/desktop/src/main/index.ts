@@ -22,8 +22,8 @@ import {
 } from "shared/constants";
 import { getWorkspaceName } from "shared/env.shared";
 import { setupAgentHooks } from "./lib/agent-setup";
-import { requestAppleEventsAccess } from "./lib/apple-events-permission";
 import { initAppState } from "./lib/app-state";
+import { requestAppleEventsAccess } from "./lib/apple-events-permission";
 import { setupAutoUpdater } from "./lib/auto-updater";
 import { setWorkspaceDockIcon } from "./lib/dock-icon";
 import { localDb } from "./lib/local-db";
