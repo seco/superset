@@ -1,10 +1,6 @@
-import { createSessionDB, type SessionDB } from "@superset/durable-session";
 import type { SlashCommand } from "@superset/durable-session/react";
-import {
-	useChatMetadata,
-	useDurableChat,
-} from "@superset/durable-session/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useDurableChat } from "@superset/durable-session/react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { env } from "renderer/env.renderer";
 import { getAuthToken } from "renderer/lib/auth-client";
 import { useTabsStore } from "renderer/stores/tabs/store";
@@ -141,62 +137,13 @@ function EmptyChatInterface({
 }
 
 // ---------------------------------------------------------------------------
-// ActiveChatInterface — handles preload, then delegates to ChatSession
+// ActiveChatInterface — self-contained via useDurableChat
 // ---------------------------------------------------------------------------
 
 function ActiveChatInterface({
 	sessionId,
 	cwd,
 }: Omit<ChatInterfaceProps, "sessionId"> & { sessionId: string }) {
-	const [ready, setReady] = useState(false);
-
-	const sessionDB = useMemo(() => {
-		return createSessionDB({
-			sessionId,
-			baseUrl: `${apiUrl}/api/streams`,
-			headers: getAuthHeaders(),
-		});
-	}, [sessionId]);
-
-	useEffect(() => {
-		let cancelled = false;
-		sessionDB
-			.preload()
-			.then(() => {
-				if (!cancelled) setReady(true);
-			})
-			.catch((err) => console.error("[ChatInterface] preload failed:", err));
-		return () => {
-			cancelled = true;
-			setReady(false);
-			sessionDB.close();
-		};
-	}, [sessionDB]);
-
-	if (!ready) {
-		return (
-			<div className="flex h-full flex-col items-center justify-center bg-background">
-				<p className="text-muted-foreground text-sm">Connecting…</p>
-			</div>
-		);
-	}
-
-	return <ChatSession sessionId={sessionId} sessionDB={sessionDB} cwd={cwd} />;
-}
-
-// ---------------------------------------------------------------------------
-// ChatSession — only mounts after preload is complete (no re-render storm)
-// ---------------------------------------------------------------------------
-
-function ChatSession({
-	sessionId,
-	sessionDB,
-	cwd,
-}: {
-	sessionId: string;
-	sessionDB: SessionDB;
-	cwd: string;
-}) {
 	const [selectedModel, setSelectedModel] =
 		useState<ModelOption>(DEFAULT_MODEL);
 	const [modelSelectorOpen, setModelSelectorOpen] = useState(false);
@@ -204,31 +151,18 @@ function ChatSession({
 	const [permissionMode, setPermissionMode] =
 		useState<PermissionMode>("bypassPermissions");
 
-	const {
-		messages,
-		isLoading,
-		sendMessage,
-		stop,
-		error,
-	} = useDurableChat({
-		sessionDB,
-		proxyUrl: apiUrl,
-		sessionId,
-		getHeaders: getAuthHeaders,
-	});
+	const { ready, messages, isLoading, sendMessage, stop, error, metadata } =
+		useDurableChat({
+			sessionId,
+			proxyUrl: apiUrl,
+			getHeaders: getAuthHeaders,
+		});
 
 	const isStreaming = isLoading;
 
-	const metadata = useChatMetadata({
-		sessionDB,
-		proxyUrl: apiUrl,
-		sessionId,
-		getHeaders: getAuthHeaders,
-	});
-
 	const registeredRef = useRef(false);
 	useEffect(() => {
-		if (registeredRef.current) return;
+		if (!ready || registeredRef.current) return;
 		registeredRef.current = true;
 		metadata.updateConfig({
 			model: selectedModel.id,
@@ -237,6 +171,7 @@ function ChatSession({
 			cwd,
 		});
 	}, [
+		ready,
 		cwd,
 		metadata.updateConfig,
 		permissionMode,
@@ -300,6 +235,14 @@ function ChatSession({
 		},
 		[handleSend],
 	);
+
+	if (!ready) {
+		return (
+			<div className="flex h-full flex-col items-center justify-center bg-background">
+				<p className="text-muted-foreground text-sm">Connecting…</p>
+			</div>
+		);
+	}
 
 	return (
 		<div className="flex h-full flex-col bg-background">

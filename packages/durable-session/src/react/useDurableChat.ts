@@ -1,26 +1,30 @@
 /**
- * Collection-based chat hook that replaces DurableChatTransport.
+ * Self-contained chat hook that owns the entire session lifecycle.
  *
- * Instead of bridging collections → ReadableStream → useChat, this hook
- * subscribes directly to the messages collection via useSyncExternalStore.
- * Actions (send/stop) are simple POSTs.
+ * Clients just pass sessionId + auth config. Internally this hook:
+ * 1. Creates and manages the SessionDB
+ * 2. Handles preload → ready state
+ * 3. Subscribes to the messages collection via useSyncExternalStore
+ * 4. Exposes metadata (title, config, presence) via embedded useChatMetadata
+ * 5. Provides sendMessage / stop actions as simple POSTs
  */
 
 import type { UIMessage } from "ai";
-import { useCallback, useMemo, useState } from "react";
-import type { SessionDB } from "../collection";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { createSessionDB } from "../collection";
 import { createMessagesCollection } from "../collections/messages";
 import { messageRowToUIMessage } from "../materialize";
+import { type UseChatMetadataReturn, useChatMetadata } from "./useChatMetadata";
 import { useCollectionData } from "./useCollectionData";
 
 export interface UseDurableChatOptions {
-	sessionDB: SessionDB;
-	proxyUrl: string;
 	sessionId: string;
+	proxyUrl: string;
 	getHeaders?: () => Record<string, string>;
 }
 
 export interface UseDurableChatReturn {
+	ready: boolean;
 	messages: (UIMessage & { actorId: string; createdAt: Date })[];
 	isLoading: boolean;
 	sendMessage: (text: string) => Promise<void>;
@@ -32,12 +36,45 @@ export interface UseDurableChatReturn {
 	) => Promise<void>;
 	submitApproval: (approvalId: string, approved: boolean) => Promise<void>;
 	error: string | null;
+	metadata: UseChatMetadataReturn;
 }
 
 export function useDurableChat(
 	options: UseDurableChatOptions,
 ): UseDurableChatReturn {
-	const { sessionDB, proxyUrl, sessionId, getHeaders } = options;
+	const { sessionId, proxyUrl, getHeaders } = options;
+
+	// --- SessionDB lifecycle ---
+	const sessionDB = useMemo(
+		() =>
+			createSessionDB({
+				sessionId,
+				baseUrl: `${proxyUrl}/api/streams`,
+				headers: getHeaders?.(),
+			}),
+		[sessionId, proxyUrl],
+	);
+
+	const [ready, setReady] = useState(false);
+
+	useEffect(() => {
+		let cancelled = false;
+		sessionDB
+			.preload()
+			.then(() => {
+				if (!cancelled) setReady(true);
+			})
+			.catch((err) =>
+				console.error("[useDurableChat] preload failed:", err),
+			);
+		return () => {
+			cancelled = true;
+			setReady(false);
+			sessionDB.close();
+		};
+	}, [sessionDB]);
+
+	// --- URL + headers helpers ---
 	const headers = useCallback(
 		() => ({
 			"Content-Type": "application/json",
@@ -65,11 +102,18 @@ export function useDurableChat(
 
 	const messages = useMemo(() => rows.map(messageRowToUIMessage), [rows]);
 
-	// isLoading: true when any assistant message is still incomplete
 	const isLoading = useMemo(
 		() => rows.some((row) => !row.isComplete),
 		[rows],
 	);
+
+	// --- Metadata (title, config, presence, agents) ---
+	const metadata = useChatMetadata({
+		sessionDB,
+		proxyUrl,
+		sessionId,
+		getHeaders,
+	});
 
 	// --- Error state ---
 	const [error, setError] = useState<string | null>(null);
@@ -151,6 +195,7 @@ export function useDurableChat(
 	);
 
 	return {
+		ready,
 		messages,
 		isLoading,
 		sendMessage,
@@ -158,5 +203,6 @@ export function useDurableChat(
 		submitToolResult,
 		submitApproval,
 		error,
+		metadata,
 	};
 }
