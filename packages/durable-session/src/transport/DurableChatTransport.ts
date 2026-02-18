@@ -52,6 +52,10 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 	): Promise<ReadableStream<UIMessageChunk>> => {
 		const { trigger, messages, abortSignal } = options;
 
+		// Snapshot seenKeys BEFORE the POST so that any response chunks
+		// that arrive while the POST is in-flight are treated as new.
+		const seenKeys = this.snapshotSeenKeys();
+
 		if (trigger === "submit-message") {
 			const lastMessage = messages[messages.length - 1];
 			if (lastMessage?.role === "user") {
@@ -82,7 +86,7 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 			});
 		}
 
-		return this.createChunkStream(abortSignal);
+		return this.createChunkStream(abortSignal, seenKeys);
 	};
 
 	reconnectToStream = async (
@@ -90,66 +94,49 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 	): Promise<ReadableStream<UIMessageChunk> | null> => {
 		const chunks = this.sessionDB.collections.chunks;
 
-		// Find assistant messageIds that have NOT finished
+		// Scan for incomplete assistant messages and pending user messages
 		const finished = new Set<string>();
 		const assistantMessageIds = new Set<string>();
+		let latestUserTime = "";
+		let latestAssistantTime = "";
+
 		for (const row of chunks.values()) {
 			const r = row as ChunkRow;
-			if (r.role !== "assistant") continue;
-			assistantMessageIds.add(r.messageId);
-			try {
-				const parsed = JSON.parse(r.chunk);
-				if (parsed.type === "finish" || parsed.type === "abort")
-					finished.add(r.messageId);
-			} catch {}
+			if (r.role === "user" && r.createdAt > latestUserTime) {
+				latestUserTime = r.createdAt;
+			}
+			if (r.role === "assistant") {
+				assistantMessageIds.add(r.messageId);
+				if (r.createdAt > latestAssistantTime) {
+					latestAssistantTime = r.createdAt;
+				}
+				try {
+					const parsed = JSON.parse(r.chunk);
+					if (parsed.type === "finish" || parsed.type === "abort")
+						finished.add(r.messageId);
+				} catch {}
+			}
 		}
 
+		// Case 1: Incomplete assistant message → replay existing + forward new
 		const incompleteId = [...assistantMessageIds].find(
 			(id) => !finished.has(id),
 		);
-		if (!incompleteId) return null; // nothing streaming
+		if (incompleteId) {
+			const existingRows: ChunkRow[] = [];
+			const seenKeys = new Set<string>();
+			for (const row of chunks.values()) {
+				const r = row as ChunkRow;
+				if (r.messageId !== incompleteId) continue;
+				existingRows.push(r);
+				seenKeys.add(r.id);
+			}
+			existingRows.sort((a, b) => a.seq - b.seq);
 
-		// Snapshot existing chunks for the incomplete message, then subscribe.
-		// The race window between snapshot and subscribe is microseconds —
-		// acceptable since the host writes orders of magnitude slower.
-		const existingRows: ChunkRow[] = [];
-		const seenKeys = new Set<string>();
-		for (const row of chunks.values()) {
-			const r = row as ChunkRow;
-			if (r.messageId !== incompleteId) continue;
-			existingRows.push(r);
-			seenKeys.add(r.id);
-		}
-		existingRows.sort((a, b) => a.seq - b.seq);
-
-		return new ReadableStream<UIMessageChunk>({
-			start: (controller) => {
-				// Replay existing chunks
-				for (const row of existingRows) {
-					try {
-						const parsed = JSON.parse(row.chunk);
-						const type = parsed.type as string;
-						if (NON_CONTENT_TYPES.has(type)) continue;
-
-						controller.enqueue(parsed as UIMessageChunk);
-
-						if (type === "finish" || type === "abort") {
-							controller.close();
-							return;
-						}
-					} catch {}
-				}
-
-				// Forward new chunks as they arrive
-				const subscription = chunks.subscribeChanges((changes) => {
-					for (const change of changes) {
-						if (change.type !== "insert" && change.type !== "update") continue;
-						const row = change.value as ChunkRow;
-
-						if (row.messageId !== incompleteId) continue;
-						if (seenKeys.has(row.id)) continue;
-						seenKeys.add(row.id);
-
+			return new ReadableStream<UIMessageChunk>({
+				start: (controller) => {
+					// Replay existing chunks
+					for (const row of existingRows) {
 						try {
 							const parsed = JSON.parse(row.chunk);
 							const type = parsed.type as string;
@@ -158,14 +145,50 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 							controller.enqueue(parsed as UIMessageChunk);
 
 							if (type === "finish" || type === "abort") {
-								subscription.unsubscribe();
 								controller.close();
+								return;
 							}
 						} catch {}
 					}
-				});
-			},
-		});
+
+					// Forward new chunks as they arrive
+					const subscription = chunks.subscribeChanges((changes) => {
+						for (const change of changes) {
+							if (change.type !== "insert" && change.type !== "update")
+								continue;
+							const row = change.value as ChunkRow;
+
+							if (row.messageId !== incompleteId) continue;
+							if (seenKeys.has(row.id)) continue;
+							seenKeys.add(row.id);
+
+							try {
+								const parsed = JSON.parse(row.chunk);
+								const type = parsed.type as string;
+								if (NON_CONTENT_TYPES.has(type)) continue;
+
+								controller.enqueue(parsed as UIMessageChunk);
+
+								if (type === "finish" || type === "abort") {
+									subscription.unsubscribe();
+									controller.close();
+								}
+							} catch {}
+						}
+					});
+				},
+			});
+		}
+
+		// Case 2: User message newer than any assistant response → response
+		// expected but not started yet (e.g. first message, agent still booting).
+		// Return a stream that waits for the response chunks to arrive.
+		if (latestUserTime && latestUserTime > latestAssistantTime) {
+			return this.createChunkStream(undefined);
+		}
+
+		// Case 3: Fully caught up
+		return null;
 	};
 
 	async submitToolResult(
@@ -203,50 +226,95 @@ export class DurableChatTransport implements ChatTransport<UIMessage> {
 		}).catch(console.error);
 	}
 
-	private createChunkStream(
-		abortSignal: AbortSignal | undefined,
-	): ReadableStream<UIMessageChunk> {
-		const chunks = this.sessionDB.collections.chunks;
+	private snapshotSeenKeys(): Set<string> {
 		const seenKeys = new Set<string>();
-
-		for (const row of chunks.values()) {
+		for (const row of this.sessionDB.collections.chunks.values()) {
 			seenKeys.add((row as ChunkRow).id);
 		}
+		return seenKeys;
+	}
+
+	private createChunkStream(
+		abortSignal: AbortSignal | undefined,
+		seenKeys?: Set<string>,
+	): ReadableStream<UIMessageChunk> {
+		const chunks = this.sessionDB.collections.chunks;
+		const keys = seenKeys ?? this.snapshotSeenKeys();
 
 		return new ReadableStream<UIMessageChunk>({
 			start: (controller) => {
+				let closed = false;
+
+				// Subscribe FIRST so we don't miss any future chunks
 				const subscription = chunks.subscribeChanges((changes) => {
+					if (closed) return;
 					for (const change of changes) {
-						if (change.type === "insert" || change.type === "update") {
-							const row = change.value as ChunkRow;
-							if (seenKeys.has(row.id)) continue;
-							seenKeys.add(row.id);
+						if (change.type !== "insert" && change.type !== "update") continue;
+						const row = change.value as ChunkRow;
+						if (keys.has(row.id)) continue;
+						keys.add(row.id);
 
-							try {
-								const parsed = JSON.parse(row.chunk);
-								const type = parsed.type as string;
+						try {
+							const parsed = JSON.parse(row.chunk);
+							const type = parsed.type as string;
 
-								// Skip non-AI-SDK chunk types
-								if (NON_CONTENT_TYPES.has(type)) continue;
+							if (NON_CONTENT_TYPES.has(type)) continue;
 
-								controller.enqueue(parsed as UIMessageChunk);
+							controller.enqueue(parsed as UIMessageChunk);
 
-								// Close after finish/abort — useChat reads until done:true
-								if (type === "finish" || type === "abort") {
-									subscription.unsubscribe();
-									controller.close();
-								}
-							} catch {
-								// skip unparseable chunks
+							if (type === "finish" || type === "abort") {
+								closed = true;
+								subscription.unsubscribe();
+								controller.close();
+								return;
 							}
+						} catch {
+							// skip unparseable chunks
 						}
 					}
 				});
 
+				// Gap scan: forward chunks that arrived between seenKeys snapshot
+				// and subscription setup (e.g. during the await fetch POST).
+				// JS is single-threaded so subscription callbacks won't fire
+				// until we return from start(), making this scan safe.
+				const gapChunks: ChunkRow[] = [];
+				for (const row of chunks.values()) {
+					const r = row as ChunkRow;
+					if (keys.has(r.id)) continue;
+					keys.add(r.id);
+					gapChunks.push(r);
+				}
+
+				if (gapChunks.length > 0) {
+					gapChunks.sort((a, b) => {
+						const t = a.createdAt.localeCompare(b.createdAt);
+						return t !== 0 ? t : a.seq - b.seq;
+					});
+					for (const row of gapChunks) {
+						if (closed) break;
+						try {
+							const parsed = JSON.parse(row.chunk);
+							const type = parsed.type as string;
+							if (NON_CONTENT_TYPES.has(type)) continue;
+
+							controller.enqueue(parsed as UIMessageChunk);
+
+							if (type === "finish" || type === "abort") {
+								closed = true;
+								subscription.unsubscribe();
+								controller.close();
+								break;
+							}
+						} catch {}
+					}
+				}
+
 				abortSignal?.addEventListener("abort", () => {
+					if (closed) return;
+					closed = true;
 					subscription.unsubscribe();
 					controller.close();
-					// Tell the agent to stop generating
 					this.sendControl("abort");
 				});
 			},

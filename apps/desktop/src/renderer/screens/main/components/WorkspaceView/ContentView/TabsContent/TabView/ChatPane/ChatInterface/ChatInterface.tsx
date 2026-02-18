@@ -1,13 +1,9 @@
-import {
-	createSessionDB,
-	DurableChatTransport,
-	materializeInitialMessages,
-	type ChunkRow,
-	type SessionDB,
-} from "@superset/durable-session";
+import { createSessionDB, type SessionDB } from "@superset/durable-session";
 import type { SlashCommand } from "@superset/durable-session/react";
-import { useChatMetadata } from "@superset/durable-session/react";
-import { useChat } from "@ai-sdk/react";
+import {
+	useChatMetadata,
+	useDurableChat,
+} from "@superset/durable-session/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { env } from "renderer/env.renderer";
 import { getAuthToken } from "renderer/lib/auth-client";
@@ -74,6 +70,24 @@ function EmptyChatInterface({
 			const newSessionId = crypto.randomUUID();
 			await createSession(newSessionId, organizationId, deviceId);
 
+			// Post config BEFORE the first message so the agent has cwd/model/etc
+			await fetch(
+				`${apiUrl}/api/streams/v1/sessions/${newSessionId}/config`,
+				{
+					method: "POST",
+					headers: {
+						"Content-Type": "application/json",
+						...getAuthHeaders(),
+					},
+					body: JSON.stringify({
+						model: selectedModel.id,
+						permissionMode,
+						thinkingEnabled,
+						cwd,
+					}),
+				},
+			);
+
 			// Send the first message before switching so it isn't lost
 			await fetch(
 				`${apiUrl}/api/streams/v1/sessions/${newSessionId}/messages`,
@@ -89,7 +103,16 @@ function EmptyChatInterface({
 
 			switchChatSession(paneId, newSessionId);
 		},
-		[organizationId, deviceId, paneId, switchChatSession],
+		[
+			organizationId,
+			deviceId,
+			paneId,
+			switchChatSession,
+			selectedModel.id,
+			permissionMode,
+			thinkingEnabled,
+			cwd,
+		],
 	);
 
 	return (
@@ -181,33 +204,20 @@ function ChatSession({
 	const [permissionMode, setPermissionMode] =
 		useState<PermissionMode>("bypassPermissions");
 
-	const transport = useMemo(
-		() =>
-			new DurableChatTransport({
-				proxyUrl: apiUrl,
-				sessionId,
-				sessionDB,
-				getHeaders: getAuthHeaders,
-			}),
-		[sessionId, sessionDB],
-	);
-
-	const initialMessages = useMemo(
-		() =>
-			materializeInitialMessages(
-				sessionDB.collections.chunks.values() as Iterable<ChunkRow>,
-			),
-		[sessionDB],
-	);
-
-	const { messages, status, sendMessage, stop, error } = useChat({
-		id: sessionId,
-		messages: initialMessages,
-		transport,
-		resume: true,
+	const {
+		messages,
+		isLoading,
+		sendMessage,
+		stop,
+		error,
+	} = useDurableChat({
+		sessionDB,
+		proxyUrl: apiUrl,
+		sessionId,
+		getHeaders: getAuthHeaders,
 	});
 
-	const isStreaming = status === "streaming" || status === "submitted";
+	const isStreaming = isLoading;
 
 	const metadata = useChatMetadata({
 		sessionDB,
@@ -271,7 +281,7 @@ function ChatSession({
 		(message: { text: string }) => {
 			const text = message.text.trim();
 			if (!text) return;
-			sendMessage({ text });
+			sendMessage(text);
 		},
 		[sendMessage],
 	);
@@ -296,7 +306,7 @@ function ChatSession({
 			<MessageList messages={messages} isStreaming={isStreaming} />
 			<ChatInputFooter
 				cwd={cwd}
-				error={error?.message ?? null}
+				error={error}
 				isStreaming={isStreaming}
 				availableModels={metadata.config.availableModels ?? []}
 				selectedModel={selectedModel}

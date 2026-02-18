@@ -9,7 +9,6 @@ export {
 	extractTextContent,
 	isAssistantMessage,
 	isUserMessage,
-	materializeInitialMessages,
 	materializeMessage,
 	messageRowToUIMessage,
 	parseChunk,
@@ -26,10 +25,6 @@ export {
 	type SessionStateSchema,
 	sessionStateSchema,
 } from "./schema";
-export {
-	DurableChatTransport,
-	type DurableChatTransportOptions,
-} from "./transport";
 export type {
 	AnyUIMessagePart,
 	DurableStreamChunk,

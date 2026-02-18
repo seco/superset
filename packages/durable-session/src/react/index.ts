@@ -14,4 +14,9 @@ export {
 	useChatPresence,
 } from "./useChatPresence";
 export { useCollectionData } from "./useCollectionData";
+export {
+	type UseDurableChatOptions,
+	type UseDurableChatReturn,
+	useDurableChat,
+} from "./useDurableChat";
 export { useMessages } from "./useMessages";
