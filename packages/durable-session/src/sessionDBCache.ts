@@ -13,7 +13,7 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>();
-const CLEANUP_DELAY_MS = 30_000;
+const CLEANUP_DELAY_MS = 60 * 60 * 1000; // 1 hour
 
 export function acquireSessionDB(config: SessionDBConfig): {
 	db: SessionDB;
