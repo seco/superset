@@ -9,9 +9,11 @@
  * 5. Provides sendMessage / stop actions as simple POSTs
  */
 
+import { createOptimisticAction } from "@durable-streams/state";
 import type { UIMessage } from "ai";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createSessionDB } from "../collection";
+import type { ChunkRow } from "../schema";
 import { createMessagesCollection } from "../collections/messages";
 import { messageRowToUIMessage } from "../materialize";
 import { type UseChatMetadataReturn, useChatMetadata } from "./useChatMetadata";
@@ -118,26 +120,75 @@ export function useDurableChat(
 	// --- Error state ---
 	const [error, setError] = useState<string | null>(null);
 
-	// --- Actions ---
+	// --- Optimistic sendMessage action ---
+	// Stable ref to avoid recreating the optimistic action on every render.
+	const depsRef = useRef({ url, headers, sessionDB, setError });
+	depsRef.current = { url, headers, sessionDB, setError };
+
+	const optimisticSend = useMemo(
+		() =>
+			createOptimisticAction<{
+				text: string;
+				messageId: string;
+				txid: string;
+			}>({
+				onMutate: ({ text, messageId }) => {
+					const now = new Date().toISOString();
+					const chunk: ChunkRow = {
+						id: `${messageId}:0`,
+						messageId,
+						actorId: "user",
+						role: "user",
+						chunk: JSON.stringify({
+							type: "whole-message",
+							message: {
+								id: messageId,
+								role: "user",
+								parts: [{ type: "text", text }],
+								createdAt: now,
+							},
+						}),
+						seq: 0,
+						createdAt: now,
+					};
+					depsRef.current.sessionDB.collections.chunks.insert(chunk);
+				},
+				mutationFn: async ({ text, messageId, txid }) => {
+					const { url, headers, sessionDB } = depsRef.current;
+					const res = await fetch(url("/messages"), {
+						method: "POST",
+						headers: headers(),
+						body: JSON.stringify({
+							content: text,
+							messageId,
+							txid,
+						}),
+					});
+					if (!res.ok) {
+						throw new Error(`Failed to send message: ${res.status}`);
+					}
+					// Wait for the write to sync back through SSE
+					await sessionDB.utils.awaitTxId(txid, 10_000);
+				},
+			}),
+		[],
+	);
+
 	const sendMessage = useCallback(
 		async (text: string) => {
 			setError(null);
+			const messageId = crypto.randomUUID();
+			const txid = crypto.randomUUID();
 			try {
-				const res = await fetch(url("/messages"), {
-					method: "POST",
-					headers: headers(),
-					body: JSON.stringify({ content: text }),
-				});
-				if (!res.ok) {
-					setError(`Failed to send message: ${res.status}`);
-				}
+				const tx = optimisticSend({ text, messageId, txid });
+				await tx.isPersisted.promise;
 			} catch (err) {
 				setError(
 					err instanceof Error ? err.message : "Failed to send message",
 				);
 			}
 		},
-		[url, headers],
+		[optimisticSend],
 	);
 
 	const stop = useCallback(() => {

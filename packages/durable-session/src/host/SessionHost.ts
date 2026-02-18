@@ -10,9 +10,13 @@ import { type ChunkRow, sessionStateSchema } from "../schema";
 
 export interface SessionHostOptions {
 	sessionId: string;
-	/** Proxy base URL for ALL reads and writes (e.g. "https://api.example.com/api/streams") */
+	/** Proxy base URL for reads/SSE (e.g. "https://api.example.com/api/streams") */
 	baseUrl: string;
 	headers?: Record<string, string>;
+	/** Direct durable stream URL for producer writes (e.g. "https://streams.example.com/sessions/{id}"). Bypasses proxy. Falls back to baseUrl-derived URL if not set. */
+	writeStreamUrl?: string;
+	/** Headers for direct writes (e.g. { Authorization: "Bearer <secret>" }). Falls back to headers if not set. */
+	writeHeaders?: Record<string, string>;
 	signal?: AbortSignal;
 }
 
@@ -62,6 +66,8 @@ export class SessionHost {
 	private readonly sessionId: string;
 	private readonly baseUrl: string;
 	private readonly headers: Record<string, string>;
+	private readonly writeStreamUrl: string;
+	private readonly writeHeaders: Record<string, string>;
 	private readonly externalSignal?: AbortSignal;
 
 	private sessionDB: SessionDB | null = null;
@@ -76,6 +82,10 @@ export class SessionHost {
 		this.sessionId = options.sessionId;
 		this.baseUrl = options.baseUrl;
 		this.headers = options.headers ?? {};
+		this.writeStreamUrl =
+			options.writeStreamUrl ??
+			`${options.baseUrl}/v1/stream/sessions/${options.sessionId}`;
+		this.writeHeaders = options.writeHeaders ?? this.headers;
 		this.externalSignal = options.signal;
 	}
 
@@ -253,14 +263,14 @@ export class SessionHost {
 		options?: { signal?: AbortSignal },
 	): Promise<void> {
 		const durableStream = new DurableStream({
-			url: `${this.baseUrl}/v1/stream/sessions/${this.sessionId}`,
-			headers: this.headers,
+			url: this.writeStreamUrl,
+			headers: this.writeHeaders,
 			contentType: "application/json",
 		});
 
 		// IdempotentProducer doesn't forward DurableStream.headers on POSTs,
 		// so inject auth via a custom fetch wrapper.
-		const authHeaders = this.headers;
+		const authHeaders = this.writeHeaders;
 		const authFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
 			fetch(input, {
 				...init,

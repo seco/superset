@@ -361,6 +361,7 @@ async function handleSendMessage(
 	const body = (await request.json()) as {
 		content: string;
 		messageId?: string;
+		txid?: string;
 	};
 
 	if (!body.content) {
@@ -376,6 +377,8 @@ async function handleSendMessage(
 		createdAt: new Date().toISOString(),
 	};
 
+	const eventHeaders = body.txid ? { txid: body.txid } : undefined;
+
 	const event = sessionStateSchema.chunks.insert({
 		key: `${messageId}:0`,
 		value: {
@@ -386,6 +389,7 @@ async function handleSendMessage(
 			seq: 0,
 			createdAt: new Date().toISOString(),
 		},
+		...(eventHeaders ? { headers: eventHeaders } : {}),
 	});
 
 	await ensureStream(sessionId);

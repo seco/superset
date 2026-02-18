@@ -41,5 +41,8 @@
 		"apps/*",
 		"tooling/*"
 	],
-	"resolutions": {}
+	"resolutions": {},
+	"patchedDependencies": {
+		"@durable-streams/state@0.2.1": "patches/@durable-streams%2Fstate@0.2.1.patch"
+	}
 }

@@ -601,7 +601,6 @@
         "typescript": "^5.9.3",
       },
       "peerDependencies": {
-        "@ai-sdk/react": "^3.0.0",
         "ai": "^6.0.0",
         "react": "^18.0.0 || ^19.0.0",
       },
@@ -776,6 +775,9 @@
       "name": "@superset/typescript",
       "version": "0.1.0",
     },
+  },
+  "patchedDependencies": {
+    "@durable-streams/state@0.2.1": "patches/@durable-streams%2Fstate@0.2.1.patch",
   },
   "packages": {
     "7zip-bin": ["7zip-bin@5.2.0", "", {}, "sha512-ukTPVhqG4jNzMro2qA9HSCSSVJN3aN7tlb+hfqYCt3ER0yWroeA2VR38MNrOHLQ/cVj+DaIMad0kFCtWWowh/A=="],
