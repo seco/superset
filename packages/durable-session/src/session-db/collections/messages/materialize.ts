@@ -317,7 +317,7 @@ function materializeStreamedMessage(rows: ChunkRow[]): MessageRow {
 		}
 	}
 
-	const lastRow = sorted[sorted.length - 1]!;
+	const lastRow = sorted.at(-1) ?? first;
 	return {
 		id: first.messageId,
 		role: first.role as MessageRole,

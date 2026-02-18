@@ -29,7 +29,7 @@ export class StreamWatcher {
 			headers: { Authorization: `Bearer ${options.authToken}` },
 		});
 
-		this.host.on("message", ({ messageId, message }) => {
+		this.host.on("message", ({ message }) => {
 			const text = extractTextFromMessage(message);
 			if (!text.trim()) return;
 

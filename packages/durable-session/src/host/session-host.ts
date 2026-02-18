@@ -217,14 +217,16 @@ export class SessionHost {
 		const pending = userMessages.filter((m) => m.createdAt > lastAssistantTime);
 		if (pending.length > 0) {
 			pending.sort((a, b) => a.createdAt.localeCompare(b.createdAt));
-			const latest = pending.at(-1)!;
-			console.log(
-				`[SessionHost] Catch-up: emitting pending message ${latest.messageId}`,
-			);
-			this.emit("message", {
-				messageId: latest.messageId,
-				message: latest.message,
-			});
+			const latest = pending.at(-1);
+			if (latest) {
+				console.log(
+					`[SessionHost] Catch-up: emitting pending message ${latest.messageId}`,
+				);
+				this.emit("message", {
+					messageId: latest.messageId,
+					message: latest.message,
+				});
+			}
 		}
 	}
 

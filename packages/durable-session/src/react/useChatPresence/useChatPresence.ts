@@ -152,7 +152,7 @@ export function useChatPresence(
 
 	const drafts = users
 		.filter((u) => u.draft && u.draft.length > 0)
-		.map((u) => ({ userId: u.userId, name: u.name, text: u.draft! }));
+		.map((u) => ({ userId: u.userId, name: u.name, text: u.draft as string }));
 
 	return { users, agents, updateStatus, updateDraft, drafts };
 }

@@ -14,16 +14,16 @@ import { useRef, useSyncExternalStore } from "react";
  * TanStack DB's Collection has 5 type parameters:
  * `Collection<T, TKey, TUtils, TSchema, TInsertInput>`
  */
-// biome-ignore lint/suspicious/noExplicitAny: generic collection extraction
 type CollectionItem<C> =
+	// biome-ignore lint/suspicious/noExplicitAny: TanStack DB Collection has 5 type params; only T matters here
 	C extends Collection<infer T, any, any, any, any> ? T : never;
 
 /**
  * SSR-safe hook for subscribing to TanStack DB collection data.
  * Workaround for useLiveQuery not yet supporting SSR.
  */
-// biome-ignore lint/suspicious/noExplicitAny: generic collection parameter
 export function useCollectionData<
+	// biome-ignore lint/suspicious/noExplicitAny: TanStack DB Collection generic constraint
 	C extends Collection<any, any, any, any, any>,
 >(collection: C): CollectionItem<C>[] {
 	type T = CollectionItem<C>;
