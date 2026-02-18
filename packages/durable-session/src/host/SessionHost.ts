@@ -1,5 +1,5 @@
 import { EventEmitter } from "node:events";
-import { DurableStream } from "@durable-streams/client";
+import { DurableStream, IdempotentProducer } from "@durable-streams/client";
 import type { UIMessage, UIMessageChunk } from "ai";
 import { createSessionDB, type SessionDB } from "../collection";
 import { type ChunkRow, sessionStateSchema } from "../schema";
@@ -268,55 +268,57 @@ export class SessionHost {
 			contentType: "application/json",
 		});
 
-		let seq = 0;
-		let aborted = false;
+		// Auth headers must be injected via custom fetch since
+		// IdempotentProducer doesn't forward DurableStream.headers on POSTs.
+		const authHeaders = this.writeHeaders;
+		const authFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+			fetch(input, {
+				...init,
+				headers: { ...authHeaders, ...init?.headers },
+			})) as typeof fetch;
 
-		// Transform UIMessageChunks into serialized durable-stream events,
-		// piped as a single streaming HTTP request via appendStream().
-		const serialized = stream.pipeThrough(
-			new TransformStream<UIMessageChunk, string>({
-				transform: (value, controller) => {
-					if (options?.signal?.aborted) {
-						aborted = true;
-						controller.terminate();
-						return;
-					}
-
-					const event = sessionStateSchema.chunks.insert({
-						key: `${messageId}:${seq}`,
-						value: {
-							messageId,
-							actorId: "agent",
-							role: "assistant",
-							chunk: JSON.stringify(value),
-							seq,
-							createdAt: new Date().toISOString(),
-						},
-					});
-
-					controller.enqueue(JSON.stringify(event));
-					seq++;
+		const producer = new IdempotentProducer(
+			durableStream,
+			`agent-${this.sessionId}`,
+			{
+				autoClaim: true,
+				lingerMs: 250,
+				maxInFlight: 10,
+				signal: options?.signal,
+				fetch: authFetch,
+				onError: (err) => {
+					if (options?.signal?.aborted) return;
+					this.emit("error", err);
 				},
-			}),
+			},
 		);
 
-		try {
-			await durableStream.appendStream(serialized, {
-				signal: options?.signal,
-			});
-		} catch (err) {
-			if (!options?.signal?.aborted) {
-				this.emit(
-					"error",
-					err instanceof Error ? err : new Error(String(err)),
-				);
-			}
-			aborted = options?.signal?.aborted ?? false;
-		}
+		let seq = 0;
+		const reader = stream.getReader();
 
-		// Write abort chunk so clients see isComplete = true
-		if (aborted) {
-			try {
+		try {
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done || options?.signal?.aborted) break;
+
+				const event = sessionStateSchema.chunks.insert({
+					key: `${messageId}:${seq}`,
+					value: {
+						messageId,
+						actorId: "agent",
+						role: "assistant",
+						chunk: JSON.stringify(value),
+						seq,
+						createdAt: new Date().toISOString(),
+					},
+				});
+
+				producer.append(JSON.stringify(event));
+				seq++;
+			}
+
+			// Write abort chunk so clients see isComplete = true
+			if (options?.signal?.aborted) {
 				const abortEvent = sessionStateSchema.chunks.insert({
 					key: `${messageId}:${seq}`,
 					value: {
@@ -328,9 +330,20 @@ export class SessionHost {
 						createdAt: new Date().toISOString(),
 					},
 				});
-				await durableStream.append(JSON.stringify(abortEvent));
-			} catch {
-				/* best effort */
+				producer.append(JSON.stringify(abortEvent));
+				seq++;
+			}
+		} finally {
+			try {
+				await producer.flush();
+				await producer.detach();
+			} catch (err) {
+				if (!options?.signal?.aborted) {
+					this.emit(
+						"error",
+						err instanceof Error ? err : new Error(String(err)),
+					);
+				}
 			}
 		}
 	}
