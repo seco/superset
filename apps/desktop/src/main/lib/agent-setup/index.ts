@@ -3,9 +3,9 @@ import {
 	cleanupGlobalOpenCodePlugin,
 	createClaudeWrapper,
 	createCodexWrapper,
+	createCursorAgentWrapper,
 	createCursorHookScript,
 	createCursorHooksJson,
-	createCursorWrapper,
 	createOpenCodePlugin,
 	createOpenCodeWrapper,
 } from "./agent-wrappers";
@@ -13,7 +13,6 @@ import { createNotifyScript } from "./notify-hook";
 import {
 	BASH_DIR,
 	BIN_DIR,
-	CURSOR_SESSIONS_DIR,
 	HOOKS_DIR,
 	OPENCODE_PLUGIN_DIR,
 	ZSH_DIR,
@@ -34,7 +33,6 @@ export function setupAgentHooks(): void {
 	fs.mkdirSync(ZSH_DIR, { recursive: true });
 	fs.mkdirSync(BASH_DIR, { recursive: true });
 	fs.mkdirSync(OPENCODE_PLUGIN_DIR, { recursive: true });
-	fs.mkdirSync(CURSOR_SESSIONS_DIR, { recursive: true });
 
 	cleanupGlobalOpenCodePlugin();
 
@@ -44,7 +42,7 @@ export function setupAgentHooks(): void {
 	createOpenCodePlugin();
 	createOpenCodeWrapper();
 	createCursorHookScript();
-	createCursorWrapper();
+	createCursorAgentWrapper();
 	createCursorHooksJson();
 
 	createZshWrapper();

@@ -3,18 +3,18 @@ import path from "node:path";
 import {
 	buildClaudeWrapperScript,
 	buildCodexWrapperScript,
-	buildCursorWrapperScript,
+	buildCursorAgentWrapperScript,
 	buildOpenCodeWrapperScript,
 	CURSOR_HOOK_MARKER,
 	getClaudeSettingsContent,
 	getClaudeSettingsPath,
 	getClaudeWrapperPath,
 	getCodexWrapperPath,
+	getCursorAgentWrapperPath,
 	getCursorGlobalHooksJsonPath,
 	getCursorHookScriptContent,
 	getCursorHookScriptPath,
 	getCursorHooksJsonContent,
-	getCursorWrapperPath,
 	getOpenCodeGlobalPluginPath,
 	getOpenCodePluginContent,
 	getOpenCodePluginPath,
@@ -29,7 +29,6 @@ import {
 } from "./notify-hook";
 import {
 	BIN_DIR,
-	CURSOR_SESSIONS_DIR,
 	HOOKS_DIR,
 	OPENCODE_CONFIG_DIR,
 	OPENCODE_PLUGIN_DIR,
@@ -123,7 +122,6 @@ export function ensureAgentHooks(): Promise<void> {
 		await fs.mkdir(HOOKS_DIR, { recursive: true });
 		await fs.mkdir(OPENCODE_CONFIG_DIR, { recursive: true });
 		await fs.mkdir(OPENCODE_PLUGIN_DIR, { recursive: true });
-		await fs.mkdir(CURSOR_SESSIONS_DIR, { recursive: true });
 		const globalOpenCodePluginPath = getOpenCodeGlobalPluginPath();
 		try {
 			await fs.mkdir(path.dirname(globalOpenCodePluginPath), {
@@ -203,11 +201,11 @@ export function ensureAgentHooks(): Promise<void> {
 		});
 
 		await ensureScriptFile({
-			filePath: getCursorWrapperPath(),
-			content: buildCursorWrapperScript(),
+			filePath: getCursorAgentWrapperPath(),
+			content: buildCursorAgentWrapperScript(),
 			mode: 0o755,
 			marker: WRAPPER_MARKER,
-			logLabel: "Cursor wrapper",
+			logLabel: "cursor-agent wrapper",
 		});
 
 		try {
