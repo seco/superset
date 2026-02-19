@@ -9,7 +9,7 @@ import { useDeleteWorkspace } from "renderer/react-query/workspaces/useDeleteWor
 import { useUpdateWorkspace } from "renderer/react-query/workspaces/useUpdateWorkspace";
 import { navigateToWorkspace } from "renderer/routes/_authenticated/_dashboard/utils/workspace-navigation";
 import { useCollections } from "renderer/routes/_authenticated/providers/CollectionsProvider/CollectionsProvider";
-import { persistCommandStatus } from "renderer/routes/_authenticated/providers/CollectionsProvider/collections";
+import { persistCommandStatus } from "./persistCommandStatus";
 import { executeTool, type ToolContext } from "./tools";
 
 /** Tracks command IDs that have been or are being processed to prevent duplicate execution. */
