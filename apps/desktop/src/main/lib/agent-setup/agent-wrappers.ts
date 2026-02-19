@@ -1,9 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { env } from "shared/env.shared";
 import { getNotifyScriptPath } from "./notify-hook";
 import {
 	BIN_DIR,
+	CURSOR_SESSIONS_DIR,
 	HOOKS_DIR,
 	OPENCODE_CONFIG_DIR,
 	OPENCODE_PLUGIN_DIR,
@@ -215,4 +217,166 @@ export function createOpenCodeWrapper(): void {
 	const script = buildOpenCodeWrapperScript(OPENCODE_CONFIG_DIR);
 	fs.writeFileSync(wrapperPath, script, { mode: 0o755 });
 	console.log("[agent-setup] Created OpenCode wrapper");
+}
+
+// --- Cursor support ---
+
+export const CURSOR_HOOK_SCRIPT_NAME = "cursor-hook.sh";
+
+const CURSOR_HOOK_SIGNATURE = "# Superset cursor hook";
+const CURSOR_HOOK_VERSION = "v1";
+export const CURSOR_HOOK_MARKER = `${CURSOR_HOOK_SIGNATURE} ${CURSOR_HOOK_VERSION}`;
+
+const CURSOR_HOOK_TEMPLATE_PATH = path.join(
+	__dirname,
+	"templates",
+	"cursor-hook.template.sh",
+);
+
+export function getCursorWrapperPath(): string {
+	return path.join(BIN_DIR, "cursor");
+}
+
+export function getCursorHookScriptPath(): string {
+	return path.join(HOOKS_DIR, CURSOR_HOOK_SCRIPT_NAME);
+}
+
+export function getCursorGlobalHooksJsonPath(): string {
+	return path.join(os.homedir(), ".cursor", "hooks.json");
+}
+
+export function buildCursorWrapperScript(): string {
+	return `#!/bin/bash
+${WRAPPER_MARKER}
+# Superset wrapper for Cursor
+# Writes a session file so the Cursor hook can resolve Superset context
+
+${buildRealBinaryResolver()}
+REAL_BIN="$(find_real_binary "cursor")"
+if [ -z "$REAL_BIN" ]; then
+  echo "${getMissingBinaryMessage("cursor")}" >&2
+  exit 127
+fi
+
+# Resolve the project directory from Cursor CLI arguments
+# cursor [options] [path] — we look for the first non-option argument
+PROJECT_DIR=""
+for arg in "$@"; do
+  case "$arg" in
+    -*) continue ;;
+    *)
+      if [ -d "$arg" ]; then
+        PROJECT_DIR="$(cd "$arg" && pwd)"
+      elif [ -f "$arg" ]; then
+        PROJECT_DIR="$(cd "$(dirname "$arg")" && pwd)"
+      fi
+      break
+      ;;
+  esac
+done
+
+# Fall back to current directory if no path argument
+[ -z "$PROJECT_DIR" ] && PROJECT_DIR="$(pwd)"
+
+# Write session file keyed by hash of project path (if inside a Superset terminal)
+if [ -n "$SUPERSET_TAB_ID" ]; then
+  SESSION_DIR="${CURSOR_SESSIONS_DIR}"
+  mkdir -p "$SESSION_DIR"
+  PROJECT_HASH=$(printf '%s' "$PROJECT_DIR" | shasum -a 256 | cut -d' ' -f1)
+  cat > "$SESSION_DIR/$PROJECT_HASH" <<SUPERSET_SESSION
+SUPERSET_PANE_ID="$SUPERSET_PANE_ID"
+SUPERSET_TAB_ID="$SUPERSET_TAB_ID"
+SUPERSET_WORKSPACE_ID="$SUPERSET_WORKSPACE_ID"
+SUPERSET_PORT="$SUPERSET_PORT"
+SUPERSET_ENV="$SUPERSET_ENV"
+SUPERSET_SESSION
+fi
+
+exec "$REAL_BIN" "$@"
+`;
+}
+
+export function getCursorHookScriptContent(): string {
+	const template = fs.readFileSync(CURSOR_HOOK_TEMPLATE_PATH, "utf-8");
+	return template
+		.replace("{{MARKER}}", CURSOR_HOOK_MARKER)
+		.replace(/\{\{DEFAULT_PORT\}\}/g, String(env.DESKTOP_NOTIFICATIONS_PORT))
+		.replace(/\{\{SESSIONS_DIR\}\}/g, CURSOR_SESSIONS_DIR);
+}
+
+/**
+ * Reads existing ~/.cursor/hooks.json, merges our hook entries (identified by
+ * hook script path), and preserves any user-defined hooks.
+ */
+export function getCursorHooksJsonContent(hookScriptPath: string): string {
+	const globalPath = getCursorGlobalHooksJsonPath();
+
+	interface CursorHookEntry {
+		command: string;
+		event?: string;
+		[key: string]: unknown;
+	}
+
+	interface CursorHooksJson {
+		[key: string]: CursorHookEntry[] | unknown;
+	}
+
+	let existing: CursorHooksJson = {};
+	try {
+		if (fs.existsSync(globalPath)) {
+			existing = JSON.parse(fs.readFileSync(globalPath, "utf-8"));
+		}
+	} catch {
+		// Malformed JSON — start fresh but log it
+		console.warn(
+			"[agent-setup] Could not parse existing ~/.cursor/hooks.json, merging carefully",
+		);
+	}
+
+	// Our hook entries — beforeSubmitPrompt → Start, stop → Stop
+	const ourHooks: Record<string, CursorHookEntry> = {
+		beforeSubmitPrompt: { command: `${hookScriptPath} Start` },
+		stop: { command: `${hookScriptPath} Stop` },
+	};
+
+	for (const [eventName, ourEntry] of Object.entries(ourHooks)) {
+		const current = existing[eventName];
+		if (Array.isArray(current)) {
+			// Remove any existing entries that reference our hook script
+			const filtered = current.filter(
+				(entry: CursorHookEntry) => !entry.command?.includes(hookScriptPath),
+			);
+			filtered.push(ourEntry);
+			existing[eventName] = filtered;
+		} else {
+			existing[eventName] = [ourEntry];
+		}
+	}
+
+	return JSON.stringify(existing, null, 2);
+}
+
+export function createCursorHookScript(): void {
+	const scriptPath = getCursorHookScriptPath();
+	const content = getCursorHookScriptContent();
+	fs.writeFileSync(scriptPath, content, { mode: 0o755 });
+	console.log("[agent-setup] Created Cursor hook script");
+}
+
+export function createCursorWrapper(): void {
+	const wrapperPath = getCursorWrapperPath();
+	const script = buildCursorWrapperScript();
+	fs.writeFileSync(wrapperPath, script, { mode: 0o755 });
+	console.log("[agent-setup] Created Cursor wrapper");
+}
+
+export function createCursorHooksJson(): void {
+	const hookScriptPath = getCursorHookScriptPath();
+	const globalPath = getCursorGlobalHooksJsonPath();
+	const content = getCursorHooksJsonContent(hookScriptPath);
+
+	const dir = path.dirname(globalPath);
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(globalPath, content, { mode: 0o644 });
+	console.log("[agent-setup] Created Cursor hooks.json");
 }

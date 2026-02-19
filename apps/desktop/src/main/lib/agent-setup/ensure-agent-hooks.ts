@@ -3,11 +3,18 @@ import path from "node:path";
 import {
 	buildClaudeWrapperScript,
 	buildCodexWrapperScript,
+	buildCursorWrapperScript,
 	buildOpenCodeWrapperScript,
+	CURSOR_HOOK_MARKER,
 	getClaudeSettingsContent,
 	getClaudeSettingsPath,
 	getClaudeWrapperPath,
 	getCodexWrapperPath,
+	getCursorGlobalHooksJsonPath,
+	getCursorHookScriptContent,
+	getCursorHookScriptPath,
+	getCursorHooksJsonContent,
+	getCursorWrapperPath,
 	getOpenCodeGlobalPluginPath,
 	getOpenCodePluginContent,
 	getOpenCodePluginPath,
@@ -22,6 +29,7 @@ import {
 } from "./notify-hook";
 import {
 	BIN_DIR,
+	CURSOR_SESSIONS_DIR,
 	HOOKS_DIR,
 	OPENCODE_CONFIG_DIR,
 	OPENCODE_PLUGIN_DIR,
@@ -74,6 +82,19 @@ async function ensureScriptFile(params: {
 	}
 }
 
+async function ensureCursorHooksJson(): Promise<void> {
+	const globalPath = getCursorGlobalHooksJsonPath();
+	const hookScriptPath = getCursorHookScriptPath();
+	const existing = await readFileIfExists(globalPath);
+
+	if (!existing || !existing.includes(hookScriptPath)) {
+		const content = getCursorHooksJsonContent(hookScriptPath);
+		await fs.mkdir(path.dirname(globalPath), { recursive: true });
+		await fs.writeFile(globalPath, content, { mode: 0o644 });
+		console.log("[agent-setup] Rewrote Cursor hooks.json");
+	}
+}
+
 async function ensureClaudeSettings(): Promise<void> {
 	const settingsPath = getClaudeSettingsPath();
 	const notifyPath = getNotifyScriptPath();
@@ -102,6 +123,7 @@ export function ensureAgentHooks(): Promise<void> {
 		await fs.mkdir(HOOKS_DIR, { recursive: true });
 		await fs.mkdir(OPENCODE_CONFIG_DIR, { recursive: true });
 		await fs.mkdir(OPENCODE_PLUGIN_DIR, { recursive: true });
+		await fs.mkdir(CURSOR_SESSIONS_DIR, { recursive: true });
 		const globalOpenCodePluginPath = getOpenCodeGlobalPluginPath();
 		try {
 			await fs.mkdir(path.dirname(globalOpenCodePluginPath), {
@@ -171,6 +193,28 @@ export function ensureAgentHooks(): Promise<void> {
 			marker: WRAPPER_MARKER,
 			logLabel: "OpenCode wrapper",
 		});
+
+		await ensureScriptFile({
+			filePath: getCursorHookScriptPath(),
+			content: getCursorHookScriptContent(),
+			mode: 0o755,
+			marker: CURSOR_HOOK_MARKER,
+			logLabel: "Cursor hook script",
+		});
+
+		await ensureScriptFile({
+			filePath: getCursorWrapperPath(),
+			content: buildCursorWrapperScript(),
+			mode: 0o755,
+			marker: WRAPPER_MARKER,
+			logLabel: "Cursor wrapper",
+		});
+
+		try {
+			await ensureCursorHooksJson();
+		} catch (error) {
+			console.warn("[agent-setup] Failed to write Cursor hooks.json:", error);
+		}
 	})().finally(() => {
 		inFlight = null;
 	});
