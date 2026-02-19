@@ -372,4 +372,3 @@ export function getCollections(organizationId: string) {
 		organizations: organizationsCollection,
 	};
 }
-
