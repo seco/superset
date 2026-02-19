@@ -86,12 +86,12 @@ export function useCommandWatcher() {
 			handledCommands.add(commandId);
 			console.log(`[command-watcher] Processing: ${commandId} (${tool})`);
 
+			const claimedAt = new Date();
 			try {
-				// Optimistic local updates for intermediate statuses (no HTTP persistence)
 				collections.agentCommands.update(commandId, (draft) => {
 					draft.status = "claimed";
 					draft.claimedBy = deviceInfo?.deviceId ?? null;
-					draft.claimedAt = new Date();
+					draft.claimedAt = claimedAt;
 				});
 
 				collections.agentCommands.update(commandId, (draft) => {
@@ -111,6 +111,7 @@ export function useCommandWatcher() {
 						id: commandId,
 						status: "completed",
 						claimedBy: deviceInfo?.deviceId,
+						claimedAt,
 						result: result.data ?? {},
 						executedAt,
 					});
@@ -139,6 +140,7 @@ export function useCommandWatcher() {
 						id: commandId,
 						status: "failed",
 						claimedBy: deviceInfo?.deviceId,
+						claimedAt,
 						error: fullError,
 						executedAt,
 					});
@@ -157,6 +159,7 @@ export function useCommandWatcher() {
 					id: commandId,
 					status: "failed",
 					claimedBy: deviceInfo?.deviceId,
+					claimedAt,
 					error: errorMsg,
 					executedAt,
 				});

@@ -1,22 +1,5 @@
 import type { CommandStatus } from "@superset/db/schema";
-import type { AppRouter } from "@superset/trpc";
-import { createTRPCProxyClient, httpBatchLink } from "@trpc/client";
-import { env } from "renderer/env.renderer";
-import { getAuthToken } from "renderer/lib/auth-client";
-import superjson from "superjson";
-
-const apiClient = createTRPCProxyClient<AppRouter>({
-	links: [
-		httpBatchLink({
-			url: `${env.NEXT_PUBLIC_API_URL}/api/trpc`,
-			headers: () => {
-				const token = getAuthToken();
-				return token ? { Authorization: `Bearer ${token}` } : {};
-			},
-			transformer: superjson,
-		}),
-	],
-});
+import { apiTrpcClient } from "renderer/lib/api-trpc-client";
 
 export async function persistCommandStatus(params: {
 	id: string;
@@ -32,7 +15,7 @@ export async function persistCommandStatus(params: {
 
 	for (let attempt = 0; attempt <= delays.length; attempt++) {
 		try {
-			await apiClient.agent.updateCommand.mutate(params);
+			await apiTrpcClient.agent.updateCommand.mutate(params);
 			return;
 		} catch (err) {
 			lastError = err;
