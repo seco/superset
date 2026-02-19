@@ -283,12 +283,13 @@ export function getCursorHooksJsonContent(hookScriptPath: string): string {
 
 	interface CursorHookEntry {
 		command: string;
-		event?: string;
 		[key: string]: unknown;
 	}
 
 	interface CursorHooksJson {
-		[key: string]: CursorHookEntry[] | unknown;
+		version?: number;
+		hooks?: Record<string, CursorHookEntry[]>;
+		[key: string]: unknown;
 	}
 
 	let existing: CursorHooksJson = {};
@@ -302,21 +303,29 @@ export function getCursorHooksJsonContent(hookScriptPath: string): string {
 		);
 	}
 
+	// Ensure top-level structure: { version: 1, hooks: { ... } }
+	if (!existing.version) {
+		existing.version = 1;
+	}
+	if (!existing.hooks || typeof existing.hooks !== "object") {
+		existing.hooks = {};
+	}
+
 	const ourHooks: Record<string, CursorHookEntry> = {
 		beforeSubmitPrompt: { command: `${hookScriptPath} Start` },
 		stop: { command: `${hookScriptPath} Stop` },
 	};
 
 	for (const [eventName, ourEntry] of Object.entries(ourHooks)) {
-		const current = existing[eventName];
+		const current = existing.hooks[eventName];
 		if (Array.isArray(current)) {
 			const filtered = current.filter(
 				(entry: CursorHookEntry) => !entry.command?.includes(hookScriptPath),
 			);
 			filtered.push(ourEntry);
-			existing[eventName] = filtered;
+			existing.hooks[eventName] = filtered;
 		} else {
-			existing[eventName] = [ourEntry];
+			existing.hooks[eventName] = [ourEntry];
 		}
 	}
 
