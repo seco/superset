@@ -7,7 +7,6 @@ import { getHashedDeviceId } from "main/lib/device-info";
 
 const service = new ChatService({
 	deviceId: getHashedDeviceId(),
-	electricUrl: env.NEXT_PUBLIC_ELECTRIC_URL,
 	apiUrl: env.NEXT_PUBLIC_API_URL,
 });
 

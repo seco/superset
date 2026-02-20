@@ -59,6 +59,7 @@ export class SessionHost {
 	private readonly externalSignal?: AbortSignal;
 
 	private sessionDB: SessionDB | null = null;
+	private readonly seenChunkIds = new Set<string>();
 	private readonly seenMessageIds = new Set<string>();
 	private unsubscribe: (() => void) | null = null;
 	private abortController: AbortController | null = null;
@@ -150,6 +151,7 @@ export class SessionHost {
 
 		for (const row of chunks.values()) {
 			const chunkRow = row as ChunkRow;
+			this.seenChunkIds.add(chunkRow.id);
 			try {
 				const parsed = JSON.parse(chunkRow.chunk);
 				if (
@@ -181,6 +183,8 @@ export class SessionHost {
 				for (const change of changes) {
 					if (change.type !== "insert" && change.type !== "update") continue;
 					const row = change.value as ChunkRow;
+					if (this.seenChunkIds.has(row.id)) continue;
+					this.seenChunkIds.add(row.id);
 
 					try {
 						const parsed = JSON.parse(row.chunk);
@@ -287,6 +291,41 @@ export class SessionHost {
 				});
 
 				producer.append(JSON.stringify(event));
+				seq++;
+			}
+
+			// Some provider/tool-approval edge-cases can yield an empty stream.
+			// Emit a terminal assistant error chunk so the UI doesn't appear stuck.
+			if (!options?.signal?.aborted && seq === 0) {
+				const emptyEvent = sessionStateSchema.chunks.insert({
+					key: `${messageId}:${seq}`,
+					value: {
+						messageId,
+						actorId: "agent",
+						role: "assistant",
+						chunk: JSON.stringify({
+							type: "error",
+							errorText: "Agent returned no response",
+						}),
+						seq,
+						createdAt: new Date().toISOString(),
+					},
+				});
+				producer.append(JSON.stringify(emptyEvent));
+				seq++;
+
+				const abortEvent = sessionStateSchema.chunks.insert({
+					key: `${messageId}:${seq}`,
+					value: {
+						messageId,
+						actorId: "agent",
+						role: "assistant",
+						chunk: JSON.stringify({ type: "abort" }),
+						seq,
+						createdAt: new Date().toISOString(),
+					},
+				});
+				producer.append(JSON.stringify(abortEvent));
 				seq++;
 			}
 
