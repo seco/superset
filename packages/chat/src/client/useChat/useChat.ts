@@ -117,7 +117,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 
 	// Hide orphaned partial assistant rows after recovery/retry.
 	// Valid in-progress assistant output is expected to be the latest row and fresh.
-	const visibleRows = useMemo(() => {
+	const visibleRows = (() => {
 		const now = Date.now();
 		const dismissed = new Set(dismissedIncompleteMessageIds);
 		return rows.filter((row, index) => {
@@ -128,7 +128,7 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 			if (isStale) return false;
 			return isLatest;
 		});
-	}, [rows, dismissedIncompleteMessageIds]);
+	})();
 
 	const messages = useMemo(
 		() => visibleRows.map(messageRowToUIMessage),

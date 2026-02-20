@@ -59,7 +59,6 @@ export class SessionHost {
 	private readonly externalSignal?: AbortSignal;
 
 	private sessionDB: SessionDB | null = null;
-	private readonly seenChunkIds = new Set<string>();
 	private readonly seenMessageIds = new Set<string>();
 	private unsubscribe: (() => void) | null = null;
 	private abortController: AbortController | null = null;
@@ -151,7 +150,6 @@ export class SessionHost {
 
 		for (const row of chunks.values()) {
 			const chunkRow = row as ChunkRow;
-			this.seenChunkIds.add(chunkRow.id);
 			try {
 				const parsed = JSON.parse(chunkRow.chunk);
 				if (
@@ -183,8 +181,6 @@ export class SessionHost {
 				for (const change of changes) {
 					if (change.type !== "insert" && change.type !== "update") continue;
 					const row = change.value as ChunkRow;
-					if (this.seenChunkIds.has(row.id)) continue;
-					this.seenChunkIds.add(row.id);
 
 					try {
 						const parsed = JSON.parse(row.chunk);
