@@ -254,9 +254,10 @@ export class SessionHost {
 				headers: { ...this.headers, ...init?.headers },
 			})) as typeof fetch;
 
+		let producerError: Error | null = null;
 		const producer = new IdempotentProducer(
 			durableStream,
-			`agent-${this.sessionId}`,
+			`agent-${this.sessionId}-${messageId}`,
 			{
 				autoClaim: true,
 				lingerMs: 250,
@@ -265,6 +266,7 @@ export class SessionHost {
 				fetch: authFetch,
 				onError: (err) => {
 					if (options?.signal?.aborted) return;
+					producerError = err;
 					this.emit("error", err);
 				},
 			},
@@ -272,6 +274,7 @@ export class SessionHost {
 
 		let seq = 0;
 		const reader = stream.getReader();
+		let writeError: Error | null = null;
 
 		try {
 			while (true) {
@@ -345,18 +348,30 @@ export class SessionHost {
 				producer.append(JSON.stringify(abortEvent));
 				seq++;
 			}
+
+			if (producerError) {
+				throw producerError;
+			}
+		} catch (err) {
+			writeError = err instanceof Error ? err : new Error(String(err));
 		} finally {
 			try {
 				await producer.flush();
 				await producer.detach();
 			} catch (err) {
 				if (!options?.signal?.aborted) {
-					this.emit(
-						"error",
-						err instanceof Error ? err : new Error(String(err)),
-					);
+					const producerCleanupError =
+						err instanceof Error ? err : new Error(String(err));
+					this.emit("error", producerCleanupError);
+					if (!writeError) {
+						writeError = producerCleanupError;
+					}
 				}
 			}
+		}
+
+		if (writeError && !options?.signal?.aborted) {
+			throw writeError;
 		}
 	}
 
