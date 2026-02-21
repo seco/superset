@@ -12,6 +12,10 @@
 			"types": "./src/host/index.ts",
 			"default": "./src/host/index.ts"
 		},
+		"./host/neon-data-resolver": {
+			"types": "./src/host/chat-service/neon-data-resolver.ts",
+			"default": "./src/host/chat-service/neon-data-resolver.ts"
+		},
 		"./client": {
 			"types": "./src/client/index.ts",
 			"default": "./src/client/index.ts"
