@@ -254,6 +254,15 @@
 		-webkit-app-region: no-drag;
 	}
 
+	/* CSS Custom Highlight API for markdown search */
+	::highlight(markdown-search-matches) {
+		background-color: #515c6a;
+	}
+
+	::highlight(markdown-search-active) {
+		background-color: rgba(255, 211, 61, 0.4);
+	}
+
 	/* Disable sonner toast hover animation for update toast only */
 	[data-sonner-toast]:has(.update-toast) {
 		transform: translateY(0);
