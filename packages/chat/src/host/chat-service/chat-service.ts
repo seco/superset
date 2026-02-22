@@ -1,10 +1,10 @@
-import type { ChatHostAuthProvider } from "../lib/auth/auth";
+import type { GetHeaders } from "../lib/auth/auth";
 import { AgentManager, type AgentManagerConfig } from "./agent-manager";
 
 export interface ChatServiceHostConfig {
 	deviceId: string;
 	apiUrl: string;
-	authProvider: ChatHostAuthProvider;
+	getHeaders: GetHeaders;
 }
 
 export class ChatService {
@@ -20,7 +20,7 @@ export class ChatService {
 			deviceId: this.hostConfig.deviceId,
 			organizationId: options.organizationId,
 			apiUrl: this.hostConfig.apiUrl,
-			authProvider: this.hostConfig.authProvider,
+			getHeaders: this.hostConfig.getHeaders,
 		};
 
 		if (this.agentManager) {

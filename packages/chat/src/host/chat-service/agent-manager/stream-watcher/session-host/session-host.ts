@@ -3,10 +3,7 @@ import { DurableStream, IdempotentProducer } from "@durable-streams/client";
 import type { UIMessage, UIMessageChunk } from "ai";
 import { type ChunkRow, sessionStateSchema } from "../../../../../schema";
 import { createSessionDB, type SessionDB } from "../../../../../session-db";
-import {
-	authFetch,
-	type ChatHostAuthProvider,
-} from "../../../../lib/auth/auth";
+import type { GetHeaders } from "../../../../lib/auth/auth";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -16,7 +13,7 @@ export interface SessionHostOptions {
 	sessionId: string;
 	/** Proxy base URL (e.g. "https://api.example.com/api/chat"). All reads and writes go through the proxy. */
 	baseUrl: string;
-	authProvider: ChatHostAuthProvider;
+	getHeaders: GetHeaders;
 	signal?: AbortSignal;
 }
 
@@ -59,7 +56,7 @@ export interface SessionHostEventMap {
 export class SessionHost {
 	private readonly sessionId: string;
 	private readonly baseUrl: string;
-	private readonly authProvider: ChatHostAuthProvider;
+	private readonly getHeaders: GetHeaders;
 	private readonly externalSignal?: AbortSignal;
 	private readonly fetchWithAuth: (
 		input: RequestInfo | URL,
@@ -75,10 +72,22 @@ export class SessionHost {
 	constructor(options: SessionHostOptions) {
 		this.sessionId = options.sessionId;
 		this.baseUrl = options.baseUrl;
-		this.authProvider = options.authProvider;
+		this.getHeaders = options.getHeaders;
 		this.externalSignal = options.signal;
-		this.fetchWithAuth = (input: RequestInfo | URL, init?: RequestInit) =>
-			authFetch(this.authProvider, input, init);
+		this.fetchWithAuth = async (
+			input: RequestInfo | URL,
+			init?: RequestInit,
+		) => {
+			const authHeaders = await this.getHeaders();
+			const headers = new Headers(init?.headers);
+			for (const [key, value] of Object.entries(authHeaders)) {
+				headers.set(key, value);
+			}
+			return fetch(input, {
+				...init,
+				headers,
+			});
+		};
 	}
 
 	// -- Typed event methods --------------------------------------------------

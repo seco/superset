@@ -1,6 +1,5 @@
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { ChatService } from "../chat-service";
-import type { ChatHostAuthProvider } from "../lib/auth/auth";
 import { createChatServiceRouter } from "../router";
 
 const deviceId = process.env.DEVICE_ID ?? "docker";
@@ -9,12 +8,17 @@ const organizationId = process.env.ORGANIZATION_ID ?? "";
 const authToken = process.env.AUTH_TOKEN ?? "";
 const port = Number(process.env.PORT ?? "3001");
 
-const authProvider: ChatHostAuthProvider = {
-	getHeaders: (): Record<string, string> =>
-		authToken ? { Authorization: `Bearer ${authToken}` } : {},
-};
-
-const service = new ChatService({ deviceId, apiUrl, authProvider });
+const service = new ChatService({
+	deviceId,
+	apiUrl,
+	getHeaders: () => {
+		const headers: Record<string, string> = {};
+		if (authToken) {
+			headers.Authorization = `Bearer ${authToken}`;
+		}
+		return headers;
+	},
+});
 
 async function main() {
 	await service.start({ organizationId });

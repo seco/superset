@@ -1,6 +1,6 @@
 import { RequestContext, superagent, toAISdkStream } from "@superset/agent";
 import type { UIMessage, UIMessageChunk } from "ai";
-import type { ChatHostAuthProvider } from "../../../../lib/auth/auth";
+import type { GetHeaders } from "../../../../lib/auth/auth";
 import {
 	sessionAbortControllers,
 	sessionContext,
@@ -31,7 +31,7 @@ export interface RunAgentOptions {
 	permissionMode?: string;
 	thinkingEnabled?: boolean;
 	apiUrl: string;
-	authProvider: ChatHostAuthProvider;
+	getHeaders: GetHeaders;
 }
 
 export async function runAgent(options: RunAgentOptions): Promise<void> {
@@ -45,7 +45,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 		permissionMode,
 		thinkingEnabled,
 		apiUrl,
-		authProvider,
+		getHeaders,
 	} = options;
 
 	// Abort any existing agent for this session
@@ -57,7 +57,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 
 	let authHeaders: Record<string, string> = {};
 	try {
-		authHeaders = await authProvider.getHeaders();
+		authHeaders = await getHeaders();
 	} catch (error) {
 		console.warn("[run-agent] Failed to resolve auth headers:", error);
 	}
@@ -88,7 +88,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 		const taskSlugs = parseTaskMentions(text);
 		const taskMentionContext = await buildTaskMentionContext(taskSlugs, {
 			apiUrl,
-			authProvider,
+			getHeaders,
 		});
 		const contextInstructions =
 			projectContext + fileMentionContext + taskMentionContext || undefined;

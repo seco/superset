@@ -11,7 +11,7 @@ import {
 	getCredentialsFromConfig,
 	getCredentialsFromKeychain,
 } from "../../auth/anthropic";
-import type { ChatHostAuthProvider } from "../../lib/auth/auth";
+import type { GetHeaders } from "../../lib/auth/auth";
 import {
 	sessionAbortControllers,
 	sessionContext,
@@ -23,7 +23,7 @@ export interface AgentManagerConfig {
 	deviceId: string;
 	organizationId: string;
 	apiUrl: string;
-	authProvider: ChatHostAuthProvider;
+	getHeaders: GetHeaders;
 }
 
 export class AgentManager {
@@ -32,13 +32,13 @@ export class AgentManager {
 	private deviceId: string;
 	private organizationId: string;
 	private apiUrl: string;
-	private authProvider: ChatHostAuthProvider;
+	private getHeaders: GetHeaders;
 
 	constructor(config: AgentManagerConfig) {
 		this.deviceId = config.deviceId;
 		this.organizationId = config.organizationId;
 		this.apiUrl = config.apiUrl;
-		this.authProvider = config.authProvider;
+		this.getHeaders = config.getHeaders;
 	}
 
 	async start(): Promise<void> {
@@ -122,7 +122,7 @@ export class AgentManager {
 			sessionId,
 			apiUrl: this.apiUrl,
 			cwd: resolvedCwd,
-			authProvider: this.authProvider,
+			getHeaders: this.getHeaders,
 		});
 		try {
 			await watcher.start();

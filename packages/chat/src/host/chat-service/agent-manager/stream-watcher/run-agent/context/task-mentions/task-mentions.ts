@@ -1,6 +1,6 @@
 import {
-	type ChatHostAuthProvider,
 	createApiTrpcClient,
+	type GetHeaders,
 } from "../../../../../../lib/auth/auth";
 
 const TASK_MENTION_REGEX = /@task:([\w-]+)/g;
@@ -17,15 +17,15 @@ export function parseTaskMentions(text: string): string[] {
 
 export async function buildTaskMentionContext(
 	slugs: string[],
-	options: { apiUrl?: string; authProvider?: ChatHostAuthProvider },
+	options: { apiUrl?: string; getHeaders?: GetHeaders },
 ): Promise<string> {
 	if (slugs.length === 0) return "";
-	if (!options.apiUrl || !options.authProvider) return "";
+	if (!options.apiUrl || !options.getHeaders) return "";
 
 	try {
 		const client = createApiTrpcClient({
 			apiUrl: options.apiUrl,
-			authProvider: options.authProvider,
+			getHeaders: options.getHeaders,
 		});
 		const tasksBySlug = await Promise.all(
 			slugs.map((slug) => client.task.bySlug.query(slug)),

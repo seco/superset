@@ -1,5 +1,5 @@
 import type { UIMessage } from "ai";
-import type { ChatHostAuthProvider } from "../../../lib/auth/auth";
+import type { GetHeaders } from "../../../lib/auth/auth";
 import { sessionAbortControllers, sessionRunIds } from "../session-state";
 import { resumeAgent, runAgent } from "./run-agent";
 import { SessionHost } from "./session-host";
@@ -22,7 +22,7 @@ export class StreamWatcher {
 		sessionId: string;
 		apiUrl: string;
 		cwd: string;
-		authProvider: ChatHostAuthProvider;
+		getHeaders: GetHeaders;
 	}) {
 		this.sessionId = options.sessionId;
 		this.cwd = options.cwd;
@@ -30,7 +30,7 @@ export class StreamWatcher {
 		this.host = new SessionHost({
 			sessionId: options.sessionId,
 			baseUrl: `${options.apiUrl}/api/chat`,
-			authProvider: options.authProvider,
+			getHeaders: options.getHeaders,
 		});
 
 		this.host.on("message", ({ message, metadata }) => {
@@ -48,7 +48,7 @@ export class StreamWatcher {
 				permissionMode: metadata?.permissionMode ?? "bypassPermissions",
 				thinkingEnabled: metadata?.thinkingEnabled ?? false,
 				apiUrl: options.apiUrl,
-				authProvider: options.authProvider,
+				getHeaders: options.getHeaders,
 			});
 		});
 
