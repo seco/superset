@@ -1,14 +1,8 @@
-import {
-	RequestContext,
-	setAnthropicAuthToken,
-	superagent,
-	toAISdkStream,
-} from "@superset/agent";
-import type { UIMessage, UIMessageChunk } from "ai";
-import { getOrRefreshAnthropicOAuthCredentials } from "../../../../auth/anthropic";
+import { RequestContext, superagent } from "@superset/agent";
+import type { UIMessage } from "ai";
 import type { GetHeaders } from "../../../../lib/auth/auth";
 import {
-	sessionAbortControllers,
+	type SessionContext,
 	sessionContext,
 	sessionRunIds,
 } from "../../session-state";
@@ -22,12 +16,21 @@ import {
 	buildTaskMentionContext,
 	parseTaskMentions,
 } from "./context/task-mentions";
+import { runWithAnthropicOAuthRetry } from "./run-agent-oauth";
 import {
-	ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE,
-	ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE,
-	isAnthropicOAuthReauthRequiredError,
-	withAnthropicOAuthRetry,
-} from "./oauth-retry";
+	buildRequestEntries,
+	buildResumeData,
+	buildStreamInput,
+	buildThinkingProviderOptions,
+	isToolApprovalRequired,
+	normalizeToolCallId,
+} from "./run-agent-options";
+import {
+	clearSessionStateForFailure,
+	releaseSessionAbortController,
+	resetSessionAbortController,
+} from "./run-agent-session";
+import { writeErrorChunk, writeToDurableStream } from "./run-agent-stream";
 
 // ---------------------------------------------------------------------------
 // runAgent — core agent execution
@@ -46,30 +49,6 @@ export interface RunAgentOptions {
 	getHeaders: GetHeaders;
 }
 
-async function syncAnthropicOAuthToken(options?: {
-	forceRefresh?: boolean;
-}): Promise<boolean> {
-	try {
-		const oauthCredentials = await getOrRefreshAnthropicOAuthCredentials({
-			forceRefresh: options?.forceRefresh,
-		});
-
-		if (!oauthCredentials) {
-			setAnthropicAuthToken(null);
-			return false;
-		}
-
-		setAnthropicAuthToken(oauthCredentials.apiKey);
-		return true;
-	} catch (error) {
-		console.warn("[run-agent] Failed to sync Anthropic OAuth token:", error);
-		if (options?.forceRefresh) {
-			setAnthropicAuthToken(null);
-		}
-		return false;
-	}
-}
-
 export async function runAgent(options: RunAgentOptions): Promise<void> {
 	const {
 		sessionId,
@@ -84,31 +63,15 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 		getHeaders,
 	} = options;
 
-	// Abort any existing agent for this session
-	const existingController = sessionAbortControllers.get(sessionId);
-	if (existingController) existingController.abort();
-
-	const abortController = new AbortController();
-	sessionAbortControllers.set(sessionId, abortController);
-
-	let authHeaders: Record<string, string> = {};
-	try {
-		authHeaders = await getHeaders();
-	} catch (error) {
-		console.warn("[run-agent] Failed to resolve auth headers:", error);
-	}
-
-	const requestEntries: [string, string][] = [
-		["modelId", modelId],
-		["cwd", cwd],
-		["apiUrl", apiUrl],
-	];
-	if (Object.keys(authHeaders).length > 0) {
-		requestEntries.push(["authHeaders", JSON.stringify(authHeaders)]);
-	}
-	if (thinkingEnabled) {
-		requestEntries.push(["thinkingEnabled", "true"]);
-	}
+	const abortController = resetSessionAbortController(sessionId);
+	const authHeaders = await resolveAuthHeaders(getHeaders);
+	const requestEntries = buildRequestEntries({
+		modelId,
+		cwd,
+		apiUrl,
+		authHeaders,
+		thinkingEnabled,
+	});
 
 	sessionContext.set(sessionId, {
 		cwd,
@@ -119,80 +82,34 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 	});
 
 	try {
-		const projectContext = await gatherProjectContext(cwd);
-		const fileMentions = parseFileMentions(text, cwd);
-		const fileMentionContext = buildFileMentionContext(fileMentions);
-		const taskSlugs = parseTaskMentions(text);
-		const taskMentionContext = await buildTaskMentionContext(taskSlugs, {
+		const contextInstructions = await buildContextInstructions({
+			text,
+			cwd,
 			apiUrl,
 			getHeaders,
 		});
-		const contextInstructions =
-			projectContext + fileMentionContext + taskMentionContext || undefined;
+		const requireToolApproval = isToolApprovalRequired(permissionMode);
+		const streamInput = buildStreamInput(text, message);
+		const thinkingProviderOptions =
+			buildThinkingProviderOptions(thinkingEnabled);
 
-		const requireToolApproval =
-			permissionMode === "default" || permissionMode === "acceptEdits";
-
-		// When the message has file parts, build a CoreUserMessage with
-		// multimodal content so the model receives images/files.
-		const fileParts = message?.parts?.filter((p) => p.type === "file") ?? [];
-		const streamInput =
-			fileParts.length > 0
-				? {
-						role: "user" as const,
-						content: [
-							...(text ? [{ type: "text" as const, text }] : []),
-							...fileParts.map((f) => {
-								if (f.mediaType.startsWith("image/")) {
-									return {
-										type: "image" as const,
-										image: new URL(f.url),
-										mimeType: f.mediaType as `image/${string}`,
-									};
-								}
-								return {
-									type: "file" as const,
-									data: new URL(f.url),
-									mimeType: f.mediaType,
-								};
-							}),
-						],
-					}
-				: text;
-
-		const output = await withAnthropicOAuthRetry(
-			() =>
-				superagent.stream(streamInput, {
-					requestContext: new RequestContext(requestEntries),
-					maxSteps: 100,
-					memory: {
-						thread: sessionId,
-						resource: sessionId,
-					},
-					abortSignal: abortController.signal,
-					...(contextInstructions ? { instructions: contextInstructions } : {}),
-					...(requireToolApproval ? { requireToolApproval: true } : {}),
-					...(thinkingEnabled
-						? {
-								providerOptions: {
-									anthropic: {
-										thinking: {
-											type: "enabled",
-											budgetTokens: 10000,
-										},
-									},
-								},
-							}
-						: {}),
-				}),
-			{
-				syncToken: syncAnthropicOAuthToken,
-				onRetry: () => {
-					console.warn(
-						"[run-agent] Retrying agent call after Anthropic OAuth refresh",
-					);
+		const output = await runWithAnthropicOAuthRetry(() =>
+			superagent.stream(streamInput, {
+				requestContext: new RequestContext(requestEntries),
+				maxSteps: 100,
+				memory: {
+					thread: sessionId,
+					resource: sessionId,
 				},
-			},
+				abortSignal: abortController.signal,
+				...(contextInstructions ? { instructions: contextInstructions } : {}),
+				...(requireToolApproval ? { requireToolApproval: true } : {}),
+				...(thinkingProviderOptions
+					? {
+							providerOptions: thinkingProviderOptions,
+						}
+					: {}),
+			}),
 		);
 
 		if (output.runId) {
@@ -203,11 +120,11 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 			runId: output.runId,
 		});
 	} catch (error) {
-		if (abortController.signal.aborted) return;
-		sessionRunIds.delete(sessionId);
-		sessionContext.delete(sessionId);
+		if (abortController.signal.aborted) {
+			return;
+		}
 
-		// Write error chunk to stream so client sees isComplete = true
+		clearSessionStateForFailure(sessionId);
 		try {
 			await writeErrorChunk(host, error);
 		} catch {
@@ -215,9 +132,7 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 		}
 		console.error(`[run-agent] Stream error for ${sessionId}:`, error);
 	} finally {
-		if (sessionAbortControllers.get(sessionId) === abortController) {
-			sessionAbortControllers.delete(sessionId);
-		}
+		releaseSessionAbortController(sessionId, abortController);
 	}
 }
 
@@ -234,13 +149,7 @@ export interface ContinueAgentWithToolOutputOptions {
 	state: "output-available" | "output-error";
 	output: unknown;
 	errorText?: string;
-	fallbackContext?: {
-		cwd: string;
-		modelId: string;
-		permissionMode?: string;
-		thinkingEnabled?: boolean;
-		requestEntries: [string, string][];
-	};
+	fallbackContext?: SessionContext;
 }
 
 export async function continueAgentWithToolOutput(
@@ -258,17 +167,10 @@ export async function continueAgentWithToolOutput(
 		fallbackContext,
 	} = options;
 
-	let ctx = sessionContext.get(sessionId);
-	if (!ctx && fallbackContext) {
-		ctx = {
-			cwd: fallbackContext.cwd,
-			modelId: fallbackContext.modelId,
-			permissionMode: fallbackContext.permissionMode,
-			thinkingEnabled: fallbackContext.thinkingEnabled,
-			requestEntries: [...fallbackContext.requestEntries],
-		};
-		sessionContext.set(sessionId, ctx);
-	}
+	const ctx = resolveSessionContextForToolOutput({
+		sessionId,
+		fallbackContext,
+	});
 	if (!ctx) {
 		console.warn(
 			`[run-agent] Ignoring tool output for ${sessionId}: missing session context`,
@@ -276,6 +178,7 @@ export async function continueAgentWithToolOutput(
 		);
 		return;
 	}
+
 	const runId = explicitRunId ?? sessionRunIds.get(sessionId);
 	if (!runId) {
 		console.warn(
@@ -284,34 +187,18 @@ export async function continueAgentWithToolOutput(
 		);
 		return;
 	}
-	const normalizedToolCallId =
-		typeof toolCallId === "string" ? toolCallId.trim().replace(/^-+/, "") : "";
-	const toolCallIdForResume = normalizedToolCallId || toolCallId;
 
-	const existingController = sessionAbortControllers.get(sessionId);
-	if (existingController) existingController.abort();
-
-	const abortController = new AbortController();
-	sessionAbortControllers.set(sessionId, abortController);
-
-	const requireToolApproval =
-		ctx.permissionMode === "default" || ctx.permissionMode === "acceptEdits";
-
-	const resumeData =
-		state === "output-error"
-			? { answers: {} as Record<string, string> }
-			: typeof output === "object" &&
-					output !== null &&
-					"answers" in output &&
-					typeof output.answers === "object" &&
-					output.answers !== null
-				? { answers: output.answers as Record<string, string> }
-				: { answers: {} as Record<string, string> };
+	const abortController = resetSessionAbortController(sessionId);
+	const requireToolApproval = isToolApprovalRequired(ctx.permissionMode);
+	const resumeData = buildResumeData(state, output);
+	const thinkingProviderOptions = buildThinkingProviderOptions(
+		ctx.thinkingEnabled,
+	);
 
 	try {
 		const stream = await superagent.resumeStream(resumeData, {
 			runId,
-			toolCallId: toolCallIdForResume,
+			toolCallId: normalizeToolCallId(toolCallId),
 			requestContext: new RequestContext([...ctx.requestEntries]),
 			maxSteps: 100,
 			memory: {
@@ -320,16 +207,9 @@ export async function continueAgentWithToolOutput(
 			},
 			abortSignal: abortController.signal,
 			...(requireToolApproval ? { requireToolApproval: true } : {}),
-			...(ctx.thinkingEnabled
+			...(thinkingProviderOptions
 				? {
-						providerOptions: {
-							anthropic: {
-								thinking: {
-									type: "enabled",
-									budgetTokens: 10000,
-								},
-							},
-						},
+						providerOptions: thinkingProviderOptions,
 					}
 				: {}),
 		});
@@ -342,10 +222,11 @@ export async function continueAgentWithToolOutput(
 			runId: stream.runId ?? runId,
 		});
 	} catch (error) {
-		if (abortController.signal.aborted) return;
-		sessionRunIds.delete(sessionId);
-		sessionContext.delete(sessionId);
+		if (abortController.signal.aborted) {
+			return;
+		}
 
+		clearSessionStateForFailure(sessionId);
 		try {
 			await writeErrorChunk(host, error);
 		} catch {
@@ -362,9 +243,7 @@ export async function continueAgentWithToolOutput(
 			},
 		);
 	} finally {
-		if (sessionAbortControllers.get(sessionId) === abortController) {
-			sessionAbortControllers.delete(sessionId);
-		}
+		releaseSessionAbortController(sessionId, abortController);
 	}
 }
 
@@ -387,47 +266,39 @@ export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
 
 	if (permissionMode) {
 		const ctx = sessionContext.get(sessionId);
-		if (ctx) ctx.permissionMode = permissionMode;
+		if (ctx) {
+			ctx.permissionMode = permissionMode;
+		}
 	}
 
 	const ctx = sessionContext.get(sessionId);
-	const ctxEntries: [string, string][] = ctx ? [...ctx.requestEntries] : [];
-	const reqCtx = new RequestContext(ctxEntries);
-	const abortController = new AbortController();
-	sessionAbortControllers.set(sessionId, abortController);
+	const reqCtx = new RequestContext(ctx ? [...ctx.requestEntries] : []);
+	const abortController = resetSessionAbortController(sessionId);
 
 	try {
-		const stream = await withAnthropicOAuthRetry(
-			() =>
-				approved
-					? superagent.approveToolCall({
-							runId,
-							...(toolCallId ? { toolCallId } : {}),
-							requestContext: reqCtx,
-						})
-					: superagent.declineToolCall({
-							runId,
-							...(toolCallId ? { toolCallId } : {}),
-							requestContext: reqCtx,
-						}),
-			{
-				syncToken: syncAnthropicOAuthToken,
-				onRetry: () => {
-					console.warn(
-						"[run-agent] Retrying agent call after Anthropic OAuth refresh",
-					);
-				},
-			},
+		const stream = await runWithAnthropicOAuthRetry(() =>
+			approved
+				? superagent.approveToolCall({
+						runId,
+						...(toolCallId ? { toolCallId } : {}),
+						requestContext: reqCtx,
+					})
+				: superagent.declineToolCall({
+						runId,
+						...(toolCallId ? { toolCallId } : {}),
+						requestContext: reqCtx,
+					}),
 		);
 
 		await writeToDurableStream(stream, host, abortController.signal, {
 			runId,
 		});
 	} catch (error) {
-		if (abortController.signal.aborted) return;
-		sessionRunIds.delete(sessionId);
-		sessionContext.delete(sessionId);
+		if (abortController.signal.aborted) {
+			return;
+		}
 
+		clearSessionStateForFailure(sessionId);
 		try {
 			await writeErrorChunk(host, error);
 		} catch {
@@ -435,93 +306,54 @@ export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
 		}
 		console.error(`[run-agent] Resume error for ${sessionId}:`, error);
 	} finally {
-		if (sessionAbortControllers.get(sessionId) === abortController) {
-			sessionAbortControllers.delete(sessionId);
-		}
+		releaseSessionAbortController(sessionId, abortController);
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-async function writeErrorChunk(
-	host: SessionHost,
-	error: unknown,
-): Promise<void> {
-	const messageId = crypto.randomUUID();
-	const isOAuthReauthError = isAnthropicOAuthReauthRequiredError(error);
-	const errorText = isOAuthReauthError
-		? ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE
-		: error instanceof Error
-			? error.message
-			: "Agent error";
-	const stream = new ReadableStream<UIMessageChunk>({
-		start(controller) {
-			controller.enqueue({
-				type: "error",
-				errorText,
-				...(isOAuthReauthError
-					? { code: ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE }
-					: {}),
-			} as UIMessageChunk);
-			controller.enqueue({ type: "abort" } as UIMessageChunk);
-			controller.close();
-		},
-	});
-	await host.writeStream(messageId, stream);
+async function resolveAuthHeaders(
+	getHeaders: GetHeaders,
+): Promise<Record<string, string>> {
+	try {
+		return await getHeaders();
+	} catch (error) {
+		console.warn("[run-agent] Failed to resolve auth headers:", error);
+		return {};
+	}
 }
 
-async function writeToDurableStream(
-	stream: Parameters<typeof toAISdkStream>[0],
-	host: SessionHost,
-	abortSignal: AbortSignal,
-	options?: { runId?: string },
-) {
-	const messageId = crypto.randomUUID();
-	const aiStream = toAISdkStream(stream, {
-		from: "agent",
-	}) as unknown as ReadableStream<UIMessageChunk>;
-	const streamWithMetadata =
-		typeof options?.runId === "string" && options.runId.length > 0
-			? prependRunMetadata(aiStream, options.runId)
-			: aiStream;
-
-	await host.writeStream(
-		messageId,
-		streamWithMetadata as unknown as ReadableStream,
-		{
-			signal: abortSignal,
-		},
-	);
+async function buildContextInstructions(options: {
+	text: string;
+	cwd: string;
+	apiUrl: string;
+	getHeaders: GetHeaders;
+}): Promise<string | undefined> {
+	const projectContext = await gatherProjectContext(options.cwd);
+	const fileMentions = parseFileMentions(options.text, options.cwd);
+	const fileMentionContext = buildFileMentionContext(fileMentions);
+	const taskSlugs = parseTaskMentions(options.text);
+	const taskMentionContext = await buildTaskMentionContext(taskSlugs, {
+		apiUrl: options.apiUrl,
+		getHeaders: options.getHeaders,
+	});
+	return projectContext + fileMentionContext + taskMentionContext || undefined;
 }
 
-function prependRunMetadata(
-	stream: ReadableStream<UIMessageChunk>,
-	runId: string,
-): ReadableStream<UIMessageChunk> {
-	const reader = stream.getReader();
-	let metadataSent = false;
+function resolveSessionContextForToolOutput(options: {
+	sessionId: string;
+	fallbackContext?: SessionContext;
+}): SessionContext | null {
+	let ctx = sessionContext.get(options.sessionId) ?? null;
+	if (ctx || !options.fallbackContext) {
+		return ctx;
+	}
 
-	return new ReadableStream<UIMessageChunk>({
-		async pull(controller) {
-			if (!metadataSent) {
-				metadataSent = true;
-				controller.enqueue({
-					type: "message-metadata",
-					messageMetadata: { runId },
-				} as UIMessageChunk);
-				return;
-			}
-			const { done, value } = await reader.read();
-			if (done) {
-				controller.close();
-				return;
-			}
-			controller.enqueue(value as UIMessageChunk);
-		},
-		cancel(reason) {
-			return reader.cancel(reason);
-		},
-	});
+	ctx = {
+		cwd: options.fallbackContext.cwd,
+		modelId: options.fallbackContext.modelId,
+		permissionMode: options.fallbackContext.permissionMode,
+		thinkingEnabled: options.fallbackContext.thinkingEnabled,
+		requestEntries: [...options.fallbackContext.requestEntries],
+	};
+	sessionContext.set(options.sessionId, ctx);
+	return ctx;
 }
