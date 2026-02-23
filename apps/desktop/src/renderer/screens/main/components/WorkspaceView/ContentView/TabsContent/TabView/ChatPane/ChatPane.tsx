@@ -125,14 +125,15 @@ export function ChatPane({
 
 	const setTabAutoTitle = useTabsStore((s) => s.setTabAutoTitle);
 
+	useEffect(() => {
+		setTabAutoTitle(tabId, sessionTitle || "New Chat");
+	}, [tabId, sessionTitle, setTabAutoTitle]);
+
 	const handleSelectSession = useCallback(
-		(newSessionId: string, title: string | null) => {
+		(newSessionId: string, _title: string | null) => {
 			switchChatSession(paneId, newSessionId);
-			if (title) {
-				setTabAutoTitle(tabId, title);
-			}
 		},
-		[paneId, tabId, switchChatSession, setTabAutoTitle],
+		[paneId, switchChatSession],
 	);
 
 	const handleNewChat = useCallback(() => {

@@ -110,7 +110,6 @@ export function createChatServiceRouter(service: ChatService) {
 					// For now this is a no-op placeholder — the stream watcher reads config from its SessionHost
 					return { success: true };
 				}),
-
 		}),
 	});
 }
