@@ -289,7 +289,7 @@ export class SessionHost {
 	async writeStream(
 		messageId: string,
 		stream: ReadableStream<UIMessageChunk>,
-		options?: { signal?: AbortSignal; debugTag?: string },
+		options?: { signal?: AbortSignal },
 	): Promise<void> {
 		const streamUrl = `${this.baseUrl}/${this.sessionId}/stream`;
 		const durableStream = new DurableStream({

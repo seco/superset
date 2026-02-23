@@ -227,11 +227,6 @@ export async function continueAgentWithToolOutput(
 			`[run-agent] Ignoring tool output for ${sessionId}: missing session context`,
 			{ toolCallId, toolName },
 		);
-		console.warn("[askq] continue: missing session context", {
-			sessionId,
-			toolCallId,
-			toolName,
-		});
 		return;
 	}
 	const runId = explicitRunId ?? sessionRunIds.get(sessionId);
@@ -240,37 +235,11 @@ export async function continueAgentWithToolOutput(
 			`[run-agent] Ignoring tool output for ${sessionId}: missing runId`,
 			{ toolCallId, toolName },
 		);
-		console.warn("[askq] continue: missing runId", {
-			sessionId,
-			toolCallId,
-			toolName,
-		});
 		return;
 	}
 	const normalizedToolCallId =
 		typeof toolCallId === "string" ? toolCallId.trim().replace(/^-+/, "") : "";
 	const toolCallIdForResume = normalizedToolCallId || toolCallId;
-	if (toolCallIdForResume !== toolCallId) {
-		console.log("[askq] continue: normalized toolCallId for resume", {
-			sessionId,
-			rawToolCallId: toolCallId,
-			normalizedToolCallId: toolCallIdForResume,
-		});
-	}
-	console.log("[askq] continue: starting resume", {
-		sessionId,
-		toolCallId,
-		toolCallIdForResume,
-		toolName,
-		state,
-		runId,
-		hasAnswers:
-			typeof output === "object" &&
-			output !== null &&
-			"answers" in output &&
-			typeof output.answers === "object" &&
-			output.answers !== null,
-	});
 
 	const existingController = sessionAbortControllers.get(sessionId);
 	if (existingController) existingController.abort();
@@ -321,20 +290,9 @@ export async function continueAgentWithToolOutput(
 		if (stream.runId) {
 			sessionRunIds.set(sessionId, stream.runId);
 		}
-		console.log("[askq] continue: resumeStream returned", {
-			sessionId,
-			toolCallId,
-			toolCallIdForResume,
-			runId: stream.runId ?? runId,
-		});
 
 		await writeToDurableStream(stream, host, abortController.signal, {
 			runId: stream.runId ?? runId,
-			debugTag: `resume:${toolName}:${toolCallIdForResume}`,
-		});
-		console.log("[askq] continue: stream write complete", {
-			sessionId,
-			toolCallId,
 		});
 	} catch (error) {
 		if (abortController.signal.aborted) return;
@@ -356,13 +314,6 @@ export async function continueAgentWithToolOutput(
 				errorText,
 			},
 		);
-		console.error("[askq] continue: resume failed", {
-			sessionId,
-			toolCallId,
-			toolName,
-			state,
-			error: error instanceof Error ? error.message : String(error),
-		});
 	} finally {
 		if (sessionAbortControllers.get(sessionId) === abortController) {
 			sessionAbortControllers.delete(sessionId);
@@ -455,7 +406,7 @@ async function writeToDurableStream(
 	stream: Parameters<typeof toAISdkStream>[0],
 	host: SessionHost,
 	abortSignal: AbortSignal,
-	options?: { runId?: string; debugTag?: string },
+	options?: { runId?: string },
 ) {
 	const messageId = crypto.randomUUID();
 	const aiStream = toAISdkStream(stream, {
@@ -471,7 +422,6 @@ async function writeToDurableStream(
 		streamWithMetadata as unknown as ReadableStream,
 		{
 			signal: abortSignal,
-			debugTag: options?.debugTag,
 		},
 	);
 }

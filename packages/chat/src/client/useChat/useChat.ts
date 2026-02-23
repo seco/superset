@@ -240,14 +240,10 @@ export function useChat(options: UseChatOptions): UseChatReturn {
 		});
 	})();
 
-	const toolOutputs = useMemo(
-		() => parseToolOutputs(chunkRows),
-		[chunkRows],
-	);
+	const toolOutputs = useMemo(() => parseToolOutputs(chunkRows), [chunkRows]);
 
 	const messages = useMemo(
-		() =>
-			applyToolOutputs(visibleRows.map(messageRowToUIMessage), toolOutputs),
+		() => applyToolOutputs(visibleRows.map(messageRowToUIMessage), toolOutputs),
 		[visibleRows, toolOutputs],
 	);
 

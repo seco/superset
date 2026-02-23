@@ -274,8 +274,7 @@ function materializeStreamedMessage(rows: ChunkRow[]): MessageRow {
 
 			// --- Reasoning ---
 			case "reasoning-start":
-				currentReasoningId =
-					typeof c.id === "string" ? c.id : "__reasoning__";
+				currentReasoningId = typeof c.id === "string" ? c.id : "__reasoning__";
 				parts.push({ type: "reasoning", text: "" });
 				break;
 			case "reasoning-delta":
