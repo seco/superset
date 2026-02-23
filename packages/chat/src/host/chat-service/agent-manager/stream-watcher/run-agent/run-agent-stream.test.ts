@@ -1,5 +1,6 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, mock, spyOn } from "bun:test";
 import type { UIMessageChunk } from "ai";
+import type { SessionHost } from "../session-host";
 import {
 	ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE,
 	ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE,
@@ -7,7 +8,9 @@ import {
 } from "./oauth-retry";
 import {
 	buildRunAgentErrorChunk,
+	logRunAgentFailure,
 	prependRunMetadata,
+	writeErrorChunkBestEffort,
 } from "./run-agent-stream";
 
 async function collectChunks(
@@ -82,5 +85,64 @@ describe("prependRunMetadata", () => {
 			id: "text-1",
 			delta: "hello",
 		});
+	});
+});
+
+describe("writeErrorChunkBestEffort", () => {
+	it("swallows host write failures", async () => {
+		const host = {
+			writeStream: mock(async () => {
+				throw new Error("disk full");
+			}),
+		};
+
+		await expect(
+			writeErrorChunkBestEffort(
+				host as unknown as SessionHost,
+				new Error("boom"),
+			),
+		).resolves.toBeUndefined();
+	});
+});
+
+describe("logRunAgentFailure", () => {
+	it("logs with context when provided", () => {
+		const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+		try {
+			logRunAgentFailure({
+				sessionId: "session-1",
+				scope: "Tool output continue error",
+				error: new Error("boom"),
+				context: { toolCallId: "call-1" },
+			});
+
+			expect(errorSpy).toHaveBeenCalledWith(
+				"[run-agent] Tool output continue error for session-1:",
+				expect.any(Error),
+				{ toolCallId: "call-1" },
+			);
+		} finally {
+			errorSpy.mockRestore();
+		}
+	});
+
+	it("logs without context when omitted", () => {
+		const errorSpy = spyOn(console, "error").mockImplementation(() => {});
+
+		try {
+			logRunAgentFailure({
+				sessionId: "session-2",
+				scope: "Resume error",
+				error: new Error("boom"),
+			});
+
+			expect(errorSpy).toHaveBeenCalledWith(
+				"[run-agent] Resume error for session-2:",
+				expect.any(Error),
+			);
+		} finally {
+			errorSpy.mockRestore();
+		}
 	});
 });

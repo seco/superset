@@ -1,9 +1,11 @@
 import { describe, expect, it } from "bun:test";
 import {
+	buildAgentCallOptions,
 	buildRequestEntries,
 	buildResumeData,
 	buildStreamInput,
 	buildThinkingProviderOptions,
+	DEFAULT_AGENT_MAX_STEPS,
 	isToolApprovalRequired,
 	normalizeToolCallId,
 } from "./run-agent-options";
@@ -147,6 +149,63 @@ describe("buildResumeData", () => {
 		});
 		expect(buildResumeData("output-available", "nope")).toEqual({
 			answers: {},
+		});
+	});
+});
+
+describe("buildAgentCallOptions", () => {
+	it("builds shared stream options with approval + thinking", () => {
+		const requestContext = { requestId: "ctx-1" };
+		const abortController = new AbortController();
+
+		const options = buildAgentCallOptions({
+			requestContext,
+			sessionId: "session-1",
+			abortSignal: abortController.signal,
+			permissionMode: "default",
+			thinkingEnabled: true,
+		});
+
+		expect(options).toEqual({
+			requestContext,
+			maxSteps: DEFAULT_AGENT_MAX_STEPS,
+			memory: {
+				thread: "session-1",
+				resource: "session-1",
+			},
+			abortSignal: abortController.signal,
+			requireToolApproval: true,
+			providerOptions: {
+				anthropic: {
+					thinking: {
+						type: "enabled",
+						budgetTokens: 10_000,
+					},
+				},
+			},
+		});
+	});
+
+	it("omits optional fields when not needed", () => {
+		const requestContext = { requestId: "ctx-2" };
+		const abortController = new AbortController();
+
+		const options = buildAgentCallOptions({
+			requestContext,
+			sessionId: "session-2",
+			abortSignal: abortController.signal,
+			permissionMode: "bypassPermissions",
+			thinkingEnabled: false,
+		});
+
+		expect(options).toEqual({
+			requestContext,
+			maxSteps: DEFAULT_AGENT_MAX_STEPS,
+			memory: {
+				thread: "session-2",
+				resource: "session-2",
+			},
+			abortSignal: abortController.signal,
 		});
 	});
 });

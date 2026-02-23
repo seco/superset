@@ -1,6 +1,7 @@
 import type { UIMessage } from "ai";
 
 const THINKING_BUDGET_TOKENS = 10_000;
+export const DEFAULT_AGENT_MAX_STEPS = 100;
 
 export type RequestEntries = [string, string][];
 
@@ -104,6 +105,53 @@ export function buildThinkingProviderOptions(thinkingEnabled?: boolean):
 				budgetTokens: THINKING_BUDGET_TOKENS,
 			},
 		},
+	};
+}
+
+export interface BuildAgentCallOptionsInput<TRequestContext> {
+	requestContext: TRequestContext;
+	sessionId: string;
+	abortSignal: AbortSignal;
+	permissionMode?: string;
+	thinkingEnabled?: boolean;
+}
+
+export function buildAgentCallOptions<TRequestContext>(
+	options: BuildAgentCallOptionsInput<TRequestContext>,
+): {
+	requestContext: TRequestContext;
+	maxSteps: number;
+	memory: { thread: string; resource: string };
+	abortSignal: AbortSignal;
+	requireToolApproval?: boolean;
+	providerOptions?: {
+		anthropic: {
+			thinking: {
+				type: "enabled";
+				budgetTokens: number;
+			};
+		};
+	};
+} {
+	const requireToolApproval = isToolApprovalRequired(options.permissionMode);
+	const thinkingProviderOptions = buildThinkingProviderOptions(
+		options.thinkingEnabled,
+	);
+
+	return {
+		requestContext: options.requestContext,
+		maxSteps: DEFAULT_AGENT_MAX_STEPS,
+		memory: {
+			thread: options.sessionId,
+			resource: options.sessionId,
+		},
+		abortSignal: options.abortSignal,
+		...(requireToolApproval ? { requireToolApproval: true } : {}),
+		...(thinkingProviderOptions
+			? {
+					providerOptions: thinkingProviderOptions,
+				}
+			: {}),
 	};
 }
 

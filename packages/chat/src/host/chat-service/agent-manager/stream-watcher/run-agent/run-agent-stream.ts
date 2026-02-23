@@ -39,6 +39,38 @@ export async function writeErrorChunk(
 	await host.writeStream(messageId, stream);
 }
 
+export async function writeErrorChunkBestEffort(
+	host: SessionHost,
+	error: unknown,
+): Promise<void> {
+	try {
+		await writeErrorChunk(host, error);
+	} catch {
+		/* best effort */
+	}
+}
+
+export function logRunAgentFailure(options: {
+	sessionId: string;
+	scope: string;
+	error: unknown;
+	context?: Record<string, unknown>;
+}): void {
+	if (options.context) {
+		console.error(
+			`[run-agent] ${options.scope} for ${options.sessionId}:`,
+			options.error,
+			options.context,
+		);
+		return;
+	}
+
+	console.error(
+		`[run-agent] ${options.scope} for ${options.sessionId}:`,
+		options.error,
+	);
+}
+
 export function prependRunMetadata(
 	stream: ReadableStream<UIMessageChunk>,
 	runId: string,

@@ -18,11 +18,10 @@ import {
 } from "./context/task-mentions";
 import { runWithAnthropicOAuthRetry } from "./run-agent-oauth";
 import {
+	buildAgentCallOptions,
 	buildRequestEntries,
 	buildResumeData,
 	buildStreamInput,
-	buildThinkingProviderOptions,
-	isToolApprovalRequired,
 	normalizeToolCallId,
 } from "./run-agent-options";
 import {
@@ -30,7 +29,11 @@ import {
 	releaseSessionAbortController,
 	resetSessionAbortController,
 } from "./run-agent-session";
-import { writeErrorChunk, writeToDurableStream } from "./run-agent-stream";
+import {
+	logRunAgentFailure,
+	writeErrorChunkBestEffort,
+	writeToDurableStream,
+} from "./run-agent-stream";
 
 // ---------------------------------------------------------------------------
 // runAgent — core agent execution
@@ -88,27 +91,20 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 			apiUrl,
 			getHeaders,
 		});
-		const requireToolApproval = isToolApprovalRequired(permissionMode);
 		const streamInput = buildStreamInput(text, message);
-		const thinkingProviderOptions =
-			buildThinkingProviderOptions(thinkingEnabled);
+		const requestContext = new RequestContext(requestEntries);
+		const agentCallOptions = buildAgentCallOptions({
+			requestContext,
+			sessionId,
+			abortSignal: abortController.signal,
+			permissionMode,
+			thinkingEnabled,
+		});
 
 		const output = await runWithAnthropicOAuthRetry(() =>
 			superagent.stream(streamInput, {
-				requestContext: new RequestContext(requestEntries),
-				maxSteps: 100,
-				memory: {
-					thread: sessionId,
-					resource: sessionId,
-				},
-				abortSignal: abortController.signal,
+				...agentCallOptions,
 				...(contextInstructions ? { instructions: contextInstructions } : {}),
-				...(requireToolApproval ? { requireToolApproval: true } : {}),
-				...(thinkingProviderOptions
-					? {
-							providerOptions: thinkingProviderOptions,
-						}
-					: {}),
 			}),
 		);
 
@@ -124,13 +120,12 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 			return;
 		}
 
-		clearSessionStateForFailure(sessionId);
-		try {
-			await writeErrorChunk(host, error);
-		} catch {
-			/* best effort */
-		}
-		console.error(`[run-agent] Stream error for ${sessionId}:`, error);
+		await handleRunAgentFailure({
+			sessionId,
+			host,
+			error,
+			scope: "Stream error",
+		});
 	} finally {
 		releaseSessionAbortController(sessionId, abortController);
 	}
@@ -189,30 +184,24 @@ export async function continueAgentWithToolOutput(
 	}
 
 	const abortController = resetSessionAbortController(sessionId);
-	const requireToolApproval = isToolApprovalRequired(ctx.permissionMode);
 	const resumeData = buildResumeData(state, output);
-	const thinkingProviderOptions = buildThinkingProviderOptions(
-		ctx.thinkingEnabled,
-	);
+	const requestContext = new RequestContext([...ctx.requestEntries]);
+	const agentCallOptions = buildAgentCallOptions({
+		requestContext,
+		sessionId,
+		abortSignal: abortController.signal,
+		permissionMode: ctx.permissionMode,
+		thinkingEnabled: ctx.thinkingEnabled,
+	});
 
 	try {
-		const stream = await superagent.resumeStream(resumeData, {
-			runId,
-			toolCallId: normalizeToolCallId(toolCallId),
-			requestContext: new RequestContext([...ctx.requestEntries]),
-			maxSteps: 100,
-			memory: {
-				thread: sessionId,
-				resource: sessionId,
-			},
-			abortSignal: abortController.signal,
-			...(requireToolApproval ? { requireToolApproval: true } : {}),
-			...(thinkingProviderOptions
-				? {
-						providerOptions: thinkingProviderOptions,
-					}
-				: {}),
-		});
+		const stream = await runWithAnthropicOAuthRetry(() =>
+			superagent.resumeStream(resumeData, {
+				runId,
+				toolCallId: normalizeToolCallId(toolCallId),
+				...agentCallOptions,
+			}),
+		);
 
 		if (stream.runId) {
 			sessionRunIds.set(sessionId, stream.runId);
@@ -226,22 +215,18 @@ export async function continueAgentWithToolOutput(
 			return;
 		}
 
-		clearSessionStateForFailure(sessionId);
-		try {
-			await writeErrorChunk(host, error);
-		} catch {
-			/* best effort */
-		}
-		console.error(
-			`[run-agent] Tool output continue error for ${sessionId}:`,
+		await handleRunAgentFailure({
+			sessionId,
+			host,
 			error,
-			{
+			scope: "Tool output continue error",
+			context: {
 				toolCallId,
 				toolName,
 				state,
 				errorText,
 			},
-		);
+		});
 	} finally {
 		releaseSessionAbortController(sessionId, abortController);
 	}
@@ -298,13 +283,12 @@ export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
 			return;
 		}
 
-		clearSessionStateForFailure(sessionId);
-		try {
-			await writeErrorChunk(host, error);
-		} catch {
-			/* best effort */
-		}
-		console.error(`[run-agent] Resume error for ${sessionId}:`, error);
+		await handleRunAgentFailure({
+			sessionId,
+			host,
+			error,
+			scope: "Resume error",
+		});
 	} finally {
 		releaseSessionAbortController(sessionId, abortController);
 	}
@@ -356,4 +340,21 @@ function resolveSessionContextForToolOutput(options: {
 	};
 	sessionContext.set(options.sessionId, ctx);
 	return ctx;
+}
+
+async function handleRunAgentFailure(options: {
+	sessionId: string;
+	host: SessionHost;
+	error: unknown;
+	scope: string;
+	context?: Record<string, unknown>;
+}): Promise<void> {
+	clearSessionStateForFailure(options.sessionId);
+	await writeErrorChunkBestEffort(options.host, options.error);
+	logRunAgentFailure({
+		sessionId: options.sessionId,
+		scope: options.scope,
+		error: options.error,
+		...(options.context ? { context: options.context } : {}),
+	});
 }
