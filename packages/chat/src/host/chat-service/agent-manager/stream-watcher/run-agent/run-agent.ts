@@ -22,7 +22,12 @@ import {
 	buildTaskMentionContext,
 	parseTaskMentions,
 } from "./context/task-mentions";
-import { withAnthropicOAuthRetry } from "./oauth-retry";
+import {
+	ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE,
+	ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE,
+	isAnthropicOAuthReauthRequiredError,
+	withAnthropicOAuthRetry,
+} from "./oauth-retry";
 
 // ---------------------------------------------------------------------------
 // runAgent — core agent execution
@@ -295,10 +300,21 @@ async function writeErrorChunk(
 	error: unknown,
 ): Promise<void> {
 	const messageId = crypto.randomUUID();
-	const errorText = error instanceof Error ? error.message : "Agent error";
+	const isOAuthReauthError = isAnthropicOAuthReauthRequiredError(error);
+	const errorText = isOAuthReauthError
+		? ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE
+		: error instanceof Error
+			? error.message
+			: "Agent error";
 	const stream = new ReadableStream<UIMessageChunk>({
 		start(controller) {
-			controller.enqueue({ type: "error", errorText } as UIMessageChunk);
+			controller.enqueue({
+				type: "error",
+				errorText,
+				...(isOAuthReauthError
+					? { code: ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE }
+					: {}),
+			} as UIMessageChunk);
 			controller.enqueue({ type: "abort" } as UIMessageChunk);
 			controller.close();
 		},

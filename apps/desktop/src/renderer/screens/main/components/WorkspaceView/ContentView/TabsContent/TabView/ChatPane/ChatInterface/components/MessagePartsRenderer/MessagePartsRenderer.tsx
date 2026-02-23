@@ -1,4 +1,5 @@
 import { ExploringGroup } from "@superset/ui/ai-elements/exploring-group";
+import { Button } from "@superset/ui/button";
 import type { UIMessage } from "ai";
 import { getToolName, isToolUIPart } from "ai";
 import {
@@ -20,6 +21,7 @@ import { MastraToolCallBlock } from "../MastraToolCallBlock";
 import { ReadOnlyToolCall } from "../ReadOnlyToolCall";
 import { ReasoningBlock } from "../ReasoningBlock";
 import { StreamingMessageText } from "./components/StreamingMessageText";
+import { resolveOAuthReauthErrorUi } from "./oauth-error";
 
 interface MessagePartsRendererProps {
 	parts: UIMessage["parts"];
@@ -39,6 +41,7 @@ export function MessagePartsRenderer({
 	const theme = useTheme();
 	const { data: openLinksInApp } =
 		electronTrpc.settings.getOpenLinksInApp.useQuery();
+	const openUrl = electronTrpc.external.openUrl.useMutation();
 	const openInBrowserPane = useTabsStore((s) => s.openInBrowserPane);
 
 	const handleLinkClick = useCallback(
@@ -109,7 +112,43 @@ export function MessagePartsRenderer({
 			}
 
 			if ((part as { type: string }).type === "error") {
-				const errorPart = part as unknown as { type: "error"; text: string };
+				const errorPart = part as unknown as {
+					type: "error";
+					text: string;
+					code?: string;
+				};
+				const oauthReauth = resolveOAuthReauthErrorUi(errorPart);
+
+				if (oauthReauth) {
+					nodes.push(
+						<div
+							key={i}
+							className="flex flex-col gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
+						>
+							<div className="flex items-start gap-2">
+								<AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
+								<div className="space-y-1">
+									<div className="font-medium">{oauthReauth.title}</div>
+									<div className="text-destructive/90">
+										{oauthReauth.description}
+									</div>
+								</div>
+							</div>
+							<div className="pl-6">
+								<Button
+									size="sm"
+									variant="outline"
+									onClick={() => openUrl.mutate(oauthReauth.actionUrl)}
+								>
+									{oauthReauth.actionLabel}
+								</Button>
+							</div>
+						</div>,
+					);
+					i++;
+					continue;
+				}
+
 				nodes.push(
 					<div
 						key={i}

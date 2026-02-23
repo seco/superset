@@ -199,4 +199,24 @@ describe("getOrRefreshAnthropicOAuthCredentials", () => {
 		expect(result).toBeNull();
 		expect(fetchImpl).toHaveBeenCalledTimes(0);
 	});
+
+	it("returns null when token is expired and refresh token is missing", async () => {
+		const now = 1_700_000_000_000;
+		const configPath = createConfigFile({
+			oauthAccessToken: "expired_access",
+			oauthExpiresAt: now - 60_000,
+		});
+		const fetchImpl = mock(async () => {
+			throw new Error("fetch should not be called without refresh token");
+		});
+
+		const result = await getOrRefreshAnthropicOAuthCredentials({
+			configPaths: [configPath],
+			fetchImpl: fetchImpl as unknown as typeof fetch,
+			nowMs: () => now,
+		});
+
+		expect(result).toBeNull();
+		expect(fetchImpl).toHaveBeenCalledTimes(0);
+	});
 });

@@ -1,6 +1,9 @@
 import { describe, expect, it, mock } from "bun:test";
 import {
+	ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE,
+	AnthropicOAuthReauthRequiredError,
 	isAnthropicOAuthExpiredError,
+	isAnthropicOAuthReauthRequiredError,
 	withAnthropicOAuthRetry,
 } from "./oauth-retry";
 
@@ -96,9 +99,25 @@ describe("withAnthropicOAuthRetry", () => {
 				},
 				{ syncToken },
 			),
-		).rejects.toThrow("oauth token expired");
+		).rejects.toThrow(ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE);
 
 		expect(attempts).toBe(1);
 		expect(syncToken).toHaveBeenCalledTimes(2);
+	});
+
+	it("identifies oauth reauth required errors", () => {
+		expect(
+			isAnthropicOAuthReauthRequiredError(
+				new AnthropicOAuthReauthRequiredError(),
+			),
+		).toBe(true);
+		expect(
+			isAnthropicOAuthReauthRequiredError(
+				new Error(ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE),
+			),
+		).toBe(true);
+		expect(isAnthropicOAuthReauthRequiredError(new Error("unrelated"))).toBe(
+			false,
+		);
 	});
 });

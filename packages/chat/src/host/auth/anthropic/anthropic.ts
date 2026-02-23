@@ -283,7 +283,11 @@ export async function getOrRefreshAnthropicOAuthCredentials(
 		if (forceRefresh) {
 			return null;
 		}
-		// No refresh token available, keep using existing access token.
+		const expired = isExpired(credentials.expiresAt, nowMs());
+		if (expired) {
+			return null;
+		}
+		// No refresh token available, keep using existing non-expired access token.
 		return credentials;
 	}
 

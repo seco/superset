@@ -2,9 +2,23 @@ export interface OAuthTokenSyncOptions {
 	forceRefresh?: boolean;
 }
 
+export const ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE =
+	"anthropic_oauth_reauth_required";
+export const ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE =
+	"Anthropic OAuth session expired and could not be refreshed. Re-authenticate Claude Code (run `claude auth login`) and try again.";
+
 export type SyncAnthropicOAuthToken = (
 	options?: OAuthTokenSyncOptions,
 ) => Promise<boolean>;
+
+export class AnthropicOAuthReauthRequiredError extends Error {
+	readonly code = ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE;
+
+	constructor() {
+		super(ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE);
+		this.name = "AnthropicOAuthReauthRequiredError";
+	}
+}
 
 export function isAnthropicOAuthExpiredError(error: unknown): boolean {
 	const message = error instanceof Error ? error.message : String(error);
@@ -30,6 +44,14 @@ export function isAnthropicOAuthExpiredError(error: unknown): boolean {
 	return false;
 }
 
+export function isAnthropicOAuthReauthRequiredError(error: unknown): boolean {
+	return (
+		error instanceof AnthropicOAuthReauthRequiredError ||
+		(error instanceof Error &&
+			error.message.includes(ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE))
+	);
+}
+
 export async function withAnthropicOAuthRetry<T>(
 	operation: () => Promise<T>,
 	options: {
@@ -48,7 +70,7 @@ export async function withAnthropicOAuthRetry<T>(
 
 		const refreshed = await options.syncToken({ forceRefresh: true });
 		if (!refreshed) {
-			throw error;
+			throw new AnthropicOAuthReauthRequiredError();
 		}
 
 		options.onRetry?.();
