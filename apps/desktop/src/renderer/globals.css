@@ -18,9 +18,9 @@
 	/* Default to dark (ember) theme colors as fallback */
 	--background: #151110;
 	--foreground: #eae8e6;
-	--card: #201E1C;
+	--card: #201e1c;
 	--card-foreground: #eae8e6;
-	--popover: #201E1C;
+	--popover: #201e1c;
 	--popover-foreground: #eae8e6;
 	--primary: #eae8e6;
 	--primary-foreground: #151110;
