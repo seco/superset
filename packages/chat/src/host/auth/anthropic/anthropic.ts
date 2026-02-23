@@ -57,6 +57,17 @@ interface ClaudeConfigFile {
 	};
 }
 
+interface GetCredentialsFromConfigOptions {
+	configPaths?: string[];
+}
+
+interface GetOrRefreshAnthropicOAuthCredentialsOptions {
+	forceRefresh?: boolean;
+	configPaths?: string[];
+	fetchImpl?: typeof fetch;
+	nowMs?: () => number;
+}
+
 let refreshInFlight: Promise<ClaudeOAuthCredentials | null> | null = null;
 
 function normalizeExpiry(value: unknown): number | undefined {
@@ -72,15 +83,15 @@ function normalizeExpiry(value: unknown): number | undefined {
 	return numeric < 1_000_000_000_000 ? numeric * 1000 : numeric;
 }
 
-function isExpired(expiresAt?: number): boolean {
-	return typeof expiresAt === "number" && Date.now() >= expiresAt;
+function isExpired(expiresAt: number | undefined, nowMs: number): boolean {
+	return typeof expiresAt === "number" && nowMs >= expiresAt;
 }
 
-function shouldRefresh(expiresAt?: number): boolean {
+function shouldRefresh(expiresAt: number | undefined, nowMs: number): boolean {
 	if (typeof expiresAt !== "number") {
 		return false;
 	}
-	return Date.now() + REFRESH_BUFFER_MS >= expiresAt;
+	return nowMs + REFRESH_BUFFER_MS >= expiresAt;
 }
 
 function parseConfigCredentials(
@@ -124,14 +135,19 @@ function parseConfigCredentials(
 	return null;
 }
 
-export function getCredentialsFromConfig(): ClaudeCredentials | null {
-	const home = homedir();
-	const configPaths = [
+export function getClaudeConfigPaths(home = homedir()): string[] {
+	return [
 		join(home, ".claude", ".credentials.json"),
 		join(home, ".claude.json"),
 		join(home, ".config", "claude", "credentials.json"),
 		join(home, ".config", "claude", "config.json"),
 	];
+}
+
+export function getCredentialsFromConfig(
+	options?: GetCredentialsFromConfigOptions,
+): ClaudeCredentials | null {
+	const configPaths = options?.configPaths ?? getClaudeConfigPaths();
 
 	for (const configPath of configPaths) {
 		if (existsSync(configPath)) {
@@ -188,12 +204,16 @@ function saveOAuthCredentialsToConfig(
 
 async function refreshAnthropicOAuthCredentials(
 	credentials: ClaudeOAuthCredentials,
+	deps: {
+		fetchImpl: typeof fetch;
+		nowMs: () => number;
+	},
 ): Promise<ClaudeOAuthCredentials | null> {
 	if (!credentials.refreshToken) {
 		return null;
 	}
 
-	const response = await fetch(ANTHROPIC_OAUTH_TOKEN_URL, {
+	const response = await deps.fetchImpl(ANTHROPIC_OAUTH_TOKEN_URL, {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		body: JSON.stringify({
@@ -223,8 +243,8 @@ async function refreshAnthropicOAuthCredentials(
 	const nextRefreshToken = data.refresh_token || credentials.refreshToken;
 	const nextExpiresAt =
 		typeof data.expires_in === "number"
-			? Date.now() + data.expires_in * 1000
-			: (credentials.expiresAt ?? Date.now() + 60 * 60 * 1000);
+			? deps.nowMs() + data.expires_in * 1000
+			: (credentials.expiresAt ?? deps.nowMs() + 60 * 60 * 1000);
 
 	saveOAuthCredentialsToConfig(credentials, {
 		accessToken: data.access_token,
@@ -245,11 +265,15 @@ async function refreshAnthropicOAuthCredentials(
  *
  * Returns null when OAuth is unavailable, or when a forced refresh fails.
  */
-export async function getOrRefreshAnthropicOAuthCredentials(options?: {
-	forceRefresh?: boolean;
-}): Promise<ClaudeOAuthCredentials | null> {
+export async function getOrRefreshAnthropicOAuthCredentials(
+	options?: GetOrRefreshAnthropicOAuthCredentialsOptions,
+): Promise<ClaudeOAuthCredentials | null> {
 	const forceRefresh = options?.forceRefresh ?? false;
-	const credentials = getCredentialsFromConfig();
+	const nowMs = options?.nowMs ?? Date.now;
+	const fetchImpl = options?.fetchImpl ?? fetch;
+	const credentials = getCredentialsFromConfig({
+		configPaths: options?.configPaths,
+	});
 
 	if (!credentials || credentials.kind !== "oauth") {
 		return null;
@@ -260,15 +284,19 @@ export async function getOrRefreshAnthropicOAuthCredentials(options?: {
 		return credentials;
 	}
 
-	const expired = isExpired(credentials.expiresAt);
-	const refreshNeeded = forceRefresh || shouldRefresh(credentials.expiresAt);
+	const expired = isExpired(credentials.expiresAt, nowMs());
+	const refreshNeeded =
+		forceRefresh || shouldRefresh(credentials.expiresAt, nowMs());
 
 	if (!refreshNeeded) {
 		return credentials;
 	}
 
 	if (!refreshInFlight) {
-		refreshInFlight = refreshAnthropicOAuthCredentials(credentials)
+		refreshInFlight = refreshAnthropicOAuthCredentials(credentials, {
+			fetchImpl,
+			nowMs,
+		})
 			.catch((error) => {
 				console.warn("[claude/auth] Failed to refresh OAuth token:", error);
 				return null;
@@ -289,6 +317,10 @@ export async function getOrRefreshAnthropicOAuthCredentials(options?: {
 	}
 
 	return credentials;
+}
+
+export function clearAnthropicOAuthRefreshState(): void {
+	refreshInFlight = null;
 }
 
 export function getCredentialsFromKeychain(): ClaudeCredentials | null {

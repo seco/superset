@@ -22,6 +22,7 @@ import {
 	buildTaskMentionContext,
 	parseTaskMentions,
 } from "./context/task-mentions";
+import { withAnthropicOAuthRetry } from "./oauth-retry";
 
 // ---------------------------------------------------------------------------
 // runAgent — core agent execution
@@ -61,54 +62,6 @@ async function syncAnthropicOAuthToken(options?: {
 			setAnthropicAuthToken(null);
 		}
 		return false;
-	}
-}
-
-function isAnthropicOAuthExpiredError(error: unknown): boolean {
-	const message = error instanceof Error ? error.message : String(error);
-	const normalized = message.toLowerCase();
-
-	if (normalized.includes("oauth token has expired")) {
-		return true;
-	}
-	if (
-		normalized.includes("authentication_error") &&
-		normalized.includes("oauth")
-	) {
-		return true;
-	}
-	if (
-		normalized.includes("api.anthropic.com") &&
-		normalized.includes("token") &&
-		normalized.includes("expired")
-	) {
-		return true;
-	}
-
-	return false;
-}
-
-async function withAnthropicOAuthRetry<T>(
-	operation: () => Promise<T>,
-): Promise<T> {
-	await syncAnthropicOAuthToken();
-
-	try {
-		return await operation();
-	} catch (error) {
-		if (!isAnthropicOAuthExpiredError(error)) {
-			throw error;
-		}
-
-		const refreshed = await syncAnthropicOAuthToken({ forceRefresh: true });
-		if (!refreshed) {
-			throw error;
-		}
-
-		console.warn(
-			"[run-agent] Retrying agent call after Anthropic OAuth refresh",
-		);
-		return operation();
 	}
 }
 
@@ -201,30 +154,39 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 					}
 				: text;
 
-		const output = await withAnthropicOAuthRetry(() =>
-			superagent.stream(streamInput, {
-				requestContext: new RequestContext(requestEntries),
-				maxSteps: 100,
-				memory: {
-					thread: sessionId,
-					resource: sessionId,
-				},
-				abortSignal: abortController.signal,
-				...(contextInstructions ? { instructions: contextInstructions } : {}),
-				...(requireToolApproval ? { requireToolApproval: true } : {}),
-				...(thinkingEnabled
-					? {
-							providerOptions: {
-								anthropic: {
-									thinking: {
-										type: "enabled",
-										budgetTokens: 10000,
+		const output = await withAnthropicOAuthRetry(
+			() =>
+				superagent.stream(streamInput, {
+					requestContext: new RequestContext(requestEntries),
+					maxSteps: 100,
+					memory: {
+						thread: sessionId,
+						resource: sessionId,
+					},
+					abortSignal: abortController.signal,
+					...(contextInstructions ? { instructions: contextInstructions } : {}),
+					...(requireToolApproval ? { requireToolApproval: true } : {}),
+					...(thinkingEnabled
+						? {
+								providerOptions: {
+									anthropic: {
+										thinking: {
+											type: "enabled",
+											budgetTokens: 10000,
+										},
 									},
 								},
-							},
-						}
-					: {}),
-			}),
+							}
+						: {}),
+				}),
+			{
+				syncToken: syncAnthropicOAuthToken,
+				onRetry: () => {
+					console.warn(
+						"[run-agent] Retrying agent call after Anthropic OAuth refresh",
+					);
+				},
+			},
 		);
 
 		if (output.runId) {
@@ -284,15 +246,25 @@ export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
 	sessionAbortControllers.set(sessionId, abortController);
 
 	try {
-		const stream = await withAnthropicOAuthRetry(() => {
-			const approvalOpts = {
-				runId,
-				requestContext: new RequestContext(ctxEntries),
-			};
-			return approved
-				? superagent.approveToolCall(approvalOpts)
-				: superagent.declineToolCall(approvalOpts);
-		});
+		const stream = await withAnthropicOAuthRetry(
+			() => {
+				const approvalOpts = {
+					runId,
+					requestContext: new RequestContext(ctxEntries),
+				};
+				return approved
+					? superagent.approveToolCall(approvalOpts)
+					: superagent.declineToolCall(approvalOpts);
+			},
+			{
+				syncToken: syncAnthropicOAuthToken,
+				onRetry: () => {
+					console.warn(
+						"[run-agent] Retrying agent call after Anthropic OAuth refresh",
+					);
+				},
+			},
+		);
 
 		await writeToDurableStream(stream, host, abortController.signal);
 	} catch (error) {
