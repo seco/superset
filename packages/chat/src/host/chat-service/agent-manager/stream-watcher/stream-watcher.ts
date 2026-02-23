@@ -205,7 +205,7 @@ export class StreamWatcher {
 			const onConnected = () => {
 				cleanup();
 				this.status = "ready";
-				void this.writeMcpStatusOnStart();
+				void this.publishMcpStatus();
 				resolve();
 			};
 
@@ -256,7 +256,7 @@ export class StreamWatcher {
 		this.startPromise = null;
 	}
 
-	private async writeMcpStatusOnStart(): Promise<void> {
+	async publishMcpStatus(): Promise<void> {
 		try {
 			await this.mcpRuntimeManager.writeStatusChunk(this.host);
 		} catch (error) {

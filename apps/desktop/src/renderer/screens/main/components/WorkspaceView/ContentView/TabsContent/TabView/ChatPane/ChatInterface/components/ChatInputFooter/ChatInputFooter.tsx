@@ -37,6 +37,7 @@ interface ChatInputFooterProps {
 	setSelectedModel: React.Dispatch<React.SetStateAction<ModelOption | null>>;
 	pickerState: ChatPickerState;
 	mcpStatus: ChatMcpStatus | null;
+	mcpStatusLoading: boolean;
 	permissionMode: PermissionMode;
 	setPermissionMode: React.Dispatch<React.SetStateAction<PermissionMode>>;
 	thinkingEnabled: boolean;
@@ -122,6 +123,7 @@ export function ChatInputFooter({
 	setSelectedModel,
 	pickerState,
 	mcpStatus,
+	mcpStatusLoading,
 	permissionMode,
 	setPermissionMode,
 	thinkingEnabled,
@@ -190,6 +192,7 @@ export function ChatInputFooter({
 											setSelectedModel={setSelectedModel}
 											pickerState={pickerState}
 											mcpStatus={mcpStatus}
+											mcpStatusLoading={mcpStatusLoading}
 											permissionMode={permissionMode}
 											setPermissionMode={setPermissionMode}
 											thinkingEnabled={thinkingEnabled}

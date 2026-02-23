@@ -77,6 +77,7 @@ export class AgentManager {
 		if (existing) {
 			try {
 				await existing.start();
+				await existing.publishMcpStatus();
 				return { ready: true };
 			} catch (err) {
 				return {
@@ -91,6 +92,7 @@ export class AgentManager {
 			try {
 				const watcher = await inFlight;
 				this.watchers.set(sessionId, watcher);
+				await watcher.publishMcpStatus();
 				return { ready: true };
 			} catch (err) {
 				return {
@@ -105,6 +107,7 @@ export class AgentManager {
 		try {
 			const watcher = await startPromise;
 			this.watchers.set(sessionId, watcher);
+			await watcher.publishMcpStatus();
 			this.logActiveSessions();
 			return { ready: true };
 		} catch (err) {

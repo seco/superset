@@ -22,6 +22,7 @@ interface ChatComposerControlsProps {
 	setSelectedModel: React.Dispatch<React.SetStateAction<ModelOption | null>>;
 	pickerState: ChatPickerState;
 	mcpStatus: ChatMcpStatus | null;
+	mcpStatusLoading: boolean;
 	permissionMode: PermissionMode;
 	setPermissionMode: React.Dispatch<React.SetStateAction<PermissionMode>>;
 	thinkingEnabled: boolean;
@@ -38,6 +39,7 @@ export function ChatComposerControls({
 	setSelectedModel,
 	pickerState,
 	mcpStatus,
+	mcpStatusLoading,
 	permissionMode,
 	setPermissionMode,
 	thinkingEnabled,
@@ -63,6 +65,7 @@ export function ChatComposerControls({
 				/>
 				<McpStatusPicker
 					mcp={mcpStatus}
+					loading={mcpStatusLoading}
 					open={pickerState.mcp.open}
 					onOpenChange={pickerState.mcp.setOpen}
 				/>

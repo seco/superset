@@ -127,6 +127,7 @@ export function ChatInterface({
 	const {
 		pendingMessages,
 		runtimeError,
+		isRuntimeWarmupPending,
 		handleSend: sendThroughController,
 		startFreshSession,
 		setRuntimeErrorMessage,
@@ -313,6 +314,7 @@ export function ChatInterface({
 					setSelectedModel={setSelectedModel}
 					pickerState={pickerState}
 					mcpStatus={chat.metadata.mcp}
+					mcpStatusLoading={!chat.metadata.mcp && isRuntimeWarmupPending}
 					permissionMode={permissionMode}
 					setPermissionMode={setPermissionMode}
 					thinkingEnabled={thinkingEnabled}

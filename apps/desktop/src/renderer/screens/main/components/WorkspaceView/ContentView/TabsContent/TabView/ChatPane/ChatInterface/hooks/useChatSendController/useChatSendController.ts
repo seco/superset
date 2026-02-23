@@ -43,6 +43,7 @@ interface UseChatSendControllerOptions {
 interface UseChatSendControllerReturn {
 	pendingMessages: PendingUserMessage[];
 	runtimeError: string | null;
+	isRuntimeWarmupPending: boolean;
 	handleSend: (message: PromptInputMessage) => void;
 	startFreshSession: () => Promise<{
 		created: boolean;
@@ -194,6 +195,7 @@ export function useChatSendController(
 		[],
 	);
 	const [runtimeError, setRuntimeError] = useState<string | null>(null);
+	const [isRuntimeWarmupPending, setIsRuntimeWarmupPending] = useState(false);
 
 	const ensureRuntimeMutation =
 		chatServiceTrpc.session.ensureRuntime.useMutation();
@@ -204,6 +206,7 @@ export function useChatSendController(
 	const sendingQueuedMessageIdRef = useRef<string | null>(null);
 	const freshSessionAbortControllerRef = useRef<AbortController | null>(null);
 	const warmedRuntimeSessionsRef = useRef(new Set<string>());
+	const warmingRuntimeSessionsRef = useRef(new Set<string>());
 
 	const setRuntimeErrorFromUnknown = useCallback(
 		(error: unknown, fallback: string) => {
@@ -277,25 +280,49 @@ export function useChatSendController(
 	);
 
 	useEffect(() => {
-		if (!chat.ready || !sessionId) return;
+		if (!sessionId) return;
 		if (warmedRuntimeSessionsRef.current.has(sessionId)) return;
+		if (warmingRuntimeSessionsRef.current.has(sessionId)) return;
 
 		let cancelled = false;
-		warmedRuntimeSessionsRef.current.add(sessionId);
+		warmingRuntimeSessionsRef.current.add(sessionId);
+		setIsRuntimeWarmupPending(true);
 
-		void ensureRuntimeReady(sessionId).catch((error) => {
-			if (cancelled) return;
-			warmedRuntimeSessionsRef.current.delete(sessionId);
-			console.warn(
-				`[chat] Failed to warm session runtime for ${sessionId}:`,
-				error,
-			);
-		});
+		void (async () => {
+			let attempt = 0;
+			try {
+				while (!cancelled) {
+					try {
+						await ensureRuntimeReady(sessionId);
+						if (cancelled) return;
+						warmedRuntimeSessionsRef.current.add(sessionId);
+						return;
+					} catch (error) {
+						if (cancelled) return;
+						if (attempt === 0 || attempt % 4 === 0) {
+							console.warn(
+								`[chat] Failed to warm session runtime for ${sessionId} (attempt ${attempt + 1}):`,
+								error,
+							);
+						}
+						const delayMs = Math.min(8_000, 500 * 2 ** attempt);
+						attempt += 1;
+						await new Promise((resolve) => setTimeout(resolve, delayMs));
+					}
+				}
+			} finally {
+				warmingRuntimeSessionsRef.current.delete(sessionId);
+				if (!cancelled) {
+					setIsRuntimeWarmupPending(false);
+				}
+			}
+		})();
 
 		return () => {
 			cancelled = true;
+			warmingRuntimeSessionsRef.current.delete(sessionId);
 		};
-	}, [chat.ready, ensureRuntimeReady, sessionId]);
+	}, [ensureRuntimeReady, sessionId]);
 
 	const uploadAttachments = useCallback(
 		async (
@@ -650,6 +677,7 @@ export function useChatSendController(
 	return {
 		pendingMessages,
 		runtimeError,
+		isRuntimeWarmupPending,
 		handleSend,
 		startFreshSession,
 		setRuntimeErrorMessage,
