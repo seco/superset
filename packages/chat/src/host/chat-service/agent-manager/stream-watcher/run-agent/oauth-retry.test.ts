@@ -39,7 +39,7 @@ describe("isAnthropicOAuthExpiredError", () => {
 
 describe("withAnthropicOAuthRetry", () => {
 	it("rethrows non-oauth errors without retry", async () => {
-		const syncToken = mock(async () => true);
+		const syncToken = mock(async () => "synced" as const);
 
 		await expect(
 			withAnthropicOAuthRetry(
@@ -57,7 +57,7 @@ describe("withAnthropicOAuthRetry", () => {
 		const syncCalls: Array<{ forceRefresh?: boolean } | undefined> = [];
 		const syncToken = mock(async (options?: { forceRefresh?: boolean }) => {
 			syncCalls.push(options);
-			return true;
+			return "synced" as const;
 		});
 		const onRetry = mock(() => {});
 		let attempts = 0;
@@ -84,8 +84,10 @@ describe("withAnthropicOAuthRetry", () => {
 	});
 
 	it("rethrows when refresh fails after oauth expiration", async () => {
-		const syncToken = mock(
-			async (options?: { forceRefresh?: boolean }) => !options?.forceRefresh,
+		const syncToken = mock(async (options?: { forceRefresh?: boolean }) =>
+			options?.forceRefresh
+				? ("reauth-required" as const)
+				: ("synced" as const),
 		);
 		let attempts = 0;
 
@@ -103,6 +105,18 @@ describe("withAnthropicOAuthRetry", () => {
 
 		expect(attempts).toBe(1);
 		expect(syncToken).toHaveBeenCalledTimes(2);
+	});
+
+	it("throws reauth-required before operation when preflight sync requires reauth", async () => {
+		const syncToken = mock(async () => "reauth-required" as const);
+		const operation = mock(async () => "ok");
+
+		await expect(
+			withAnthropicOAuthRetry(operation, { syncToken }),
+		).rejects.toThrow(ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE);
+
+		expect(operation).toHaveBeenCalledTimes(0);
+		expect(syncToken).toHaveBeenCalledTimes(1);
 	});
 
 	it("identifies oauth reauth required errors", () => {

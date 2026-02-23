@@ -1,13 +1,20 @@
 import { setAnthropicAuthToken } from "@superset/agent";
-import { getOrRefreshAnthropicOAuthCredentials } from "../../../../auth/anthropic";
+import {
+	getCredentialsFromConfig,
+	getOrRefreshAnthropicOAuthCredentials,
+} from "../../../../auth/anthropic";
 import {
 	type OAuthTokenSyncOptions,
+	type OAuthTokenSyncResult,
 	withAnthropicOAuthRetry,
 } from "./oauth-retry";
 
 export async function syncAnthropicOAuthToken(
 	options?: OAuthTokenSyncOptions,
-): Promise<boolean> {
+): Promise<OAuthTokenSyncResult> {
+	const configuredCredentials = getCredentialsFromConfig();
+	const hasConfiguredOAuthCredentials = configuredCredentials?.kind === "oauth";
+
 	try {
 		const oauthCredentials = await getOrRefreshAnthropicOAuthCredentials({
 			forceRefresh: options?.forceRefresh,
@@ -15,17 +22,18 @@ export async function syncAnthropicOAuthToken(
 
 		if (!oauthCredentials) {
 			setAnthropicAuthToken(null);
-			return false;
+			return hasConfiguredOAuthCredentials ? "reauth-required" : "unavailable";
 		}
 
 		setAnthropicAuthToken(oauthCredentials.apiKey);
-		return true;
+		return "synced";
 	} catch (error) {
 		console.warn("[run-agent] Failed to sync Anthropic OAuth token:", error);
-		if (options?.forceRefresh) {
+		if (hasConfiguredOAuthCredentials || options?.forceRefresh) {
 			setAnthropicAuthToken(null);
+			return "reauth-required";
 		}
-		return false;
+		return "unavailable";
 	}
 }
 

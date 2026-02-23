@@ -2,6 +2,8 @@ export interface OAuthTokenSyncOptions {
 	forceRefresh?: boolean;
 }
 
+export type OAuthTokenSyncResult = "synced" | "reauth-required" | "unavailable";
+
 export const ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE =
 	"anthropic_oauth_reauth_required";
 export const ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE =
@@ -9,7 +11,7 @@ export const ANTHROPIC_OAUTH_REAUTH_REQUIRED_MESSAGE =
 
 export type SyncAnthropicOAuthToken = (
 	options?: OAuthTokenSyncOptions,
-) => Promise<boolean>;
+) => Promise<OAuthTokenSyncResult>;
 
 export class AnthropicOAuthReauthRequiredError extends Error {
 	readonly code = ANTHROPIC_OAUTH_REAUTH_REQUIRED_ERROR_CODE;
@@ -59,7 +61,10 @@ export async function withAnthropicOAuthRetry<T>(
 		onRetry?: () => void;
 	},
 ): Promise<T> {
-	await options.syncToken();
+	const preflightSyncResult = await options.syncToken();
+	if (preflightSyncResult === "reauth-required") {
+		throw new AnthropicOAuthReauthRequiredError();
+	}
 
 	try {
 		return await operation();
@@ -68,8 +73,8 @@ export async function withAnthropicOAuthRetry<T>(
 			throw error;
 		}
 
-		const refreshed = await options.syncToken({ forceRefresh: true });
-		if (!refreshed) {
+		const refreshResult = await options.syncToken({ forceRefresh: true });
+		if (refreshResult !== "synced") {
 			throw new AnthropicOAuthReauthRequiredError();
 		}
 

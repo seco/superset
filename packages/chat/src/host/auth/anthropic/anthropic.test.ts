@@ -284,4 +284,95 @@ describe("getOrRefreshAnthropicOAuthCredentials", () => {
 		expect(result).toBeNull();
 		expect(fetchImpl).toHaveBeenCalledTimes(0);
 	});
+
+	it("deduplicates concurrent refresh calls for the same config path", async () => {
+		const now = 1_700_000_000_000;
+		const configPath = createConfigFile({
+			claudeAiOauth: {
+				accessToken: "expired-access",
+				refreshToken: "refresh-old",
+				expiresAt: now - 60_000,
+			},
+		});
+		const fetchImpl = mock(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 10));
+			return new Response(
+				JSON.stringify({
+					access_token: "access-new",
+					refresh_token: "refresh-new",
+					expires_in: 3600,
+				}),
+				{ status: 200 },
+			);
+		});
+
+		const [resultA, resultB] = await Promise.all([
+			getOrRefreshAnthropicOAuthCredentials({
+				configPaths: [configPath],
+				fetchImpl: fetchImpl as unknown as typeof fetch,
+				nowMs: () => now,
+			}),
+			getOrRefreshAnthropicOAuthCredentials({
+				configPaths: [configPath],
+				fetchImpl: fetchImpl as unknown as typeof fetch,
+				nowMs: () => now,
+			}),
+		]);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(1);
+		expect(resultA?.apiKey).toBe("access-new");
+		expect(resultB?.apiKey).toBe("access-new");
+	});
+
+	it("does not share in-flight refreshes across different config paths", async () => {
+		const now = 1_700_000_000_000;
+		const configPathA = createConfigFile({
+			claudeAiOauth: {
+				accessToken: "expired-a",
+				refreshToken: "refresh-a",
+				expiresAt: now - 60_000,
+			},
+		});
+		const configPathB = createConfigFile({
+			claudeAiOauth: {
+				accessToken: "expired-b",
+				refreshToken: "refresh-b",
+				expiresAt: now - 60_000,
+			},
+		});
+		const fetchImpl = mock(
+			async (_input: RequestInfo | URL, init?: RequestInit) => {
+				const body =
+					typeof init?.body === "string"
+						? (JSON.parse(init.body) as { refresh_token?: string })
+						: {};
+				const refreshToken = body.refresh_token;
+				return new Response(
+					JSON.stringify({
+						access_token: `access-${refreshToken}`,
+						refresh_token: `refresh-next-${refreshToken}`,
+						expires_in: 3600,
+					}),
+					{ status: 200 },
+				);
+			},
+		);
+
+		const [resultA, resultB] = await Promise.all([
+			getOrRefreshAnthropicOAuthCredentials({
+				configPaths: [configPathA],
+				fetchImpl: fetchImpl as unknown as typeof fetch,
+				nowMs: () => now,
+			}),
+			getOrRefreshAnthropicOAuthCredentials({
+				configPaths: [configPathB],
+				fetchImpl: fetchImpl as unknown as typeof fetch,
+				nowMs: () => now,
+			}),
+		]);
+
+		expect(fetchImpl).toHaveBeenCalledTimes(2);
+		expect(resultA?.apiKey).toBe("access-refresh-a");
+		expect(resultB?.apiKey).toBe("access-refresh-b");
+	});
 });

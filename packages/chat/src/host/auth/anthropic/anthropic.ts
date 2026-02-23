@@ -69,7 +69,10 @@ interface GetOrRefreshAnthropicOAuthCredentialsOptions {
 	nowMs?: () => number;
 }
 
-let refreshInFlight: Promise<ClaudeOAuthCredentials | null> | null = null;
+const refreshInFlightByConfigPath = new Map<
+	string,
+	Promise<ClaudeOAuthCredentials | null>
+>();
 
 function normalizeExpiry(value: unknown): number | undefined {
 	if (typeof value !== "number" && typeof value !== "string") {
@@ -322,6 +325,8 @@ export async function getOrRefreshAnthropicOAuthCredentials(
 		return credentials;
 	}
 
+	const refreshKey = credentials.configPath;
+	let refreshInFlight = refreshInFlightByConfigPath.get(refreshKey);
 	if (!refreshInFlight) {
 		refreshInFlight = refreshAnthropicOAuthCredentials(credentials, {
 			fetchImpl,
@@ -332,8 +337,9 @@ export async function getOrRefreshAnthropicOAuthCredentials(
 				return null;
 			})
 			.finally(() => {
-				refreshInFlight = null;
+				refreshInFlightByConfigPath.delete(refreshKey);
 			});
+		refreshInFlightByConfigPath.set(refreshKey, refreshInFlight);
 	}
 
 	const refreshed = await refreshInFlight;
@@ -350,7 +356,7 @@ export async function getOrRefreshAnthropicOAuthCredentials(
 }
 
 export function clearAnthropicOAuthRefreshState(): void {
-	refreshInFlight = null;
+	refreshInFlightByConfigPath.clear();
 }
 
 export function getCredentialsFromKeychain(): ClaudeCredentials | null {
