@@ -245,6 +245,7 @@ export function ChatInterface({
 						: []),
 					...pending.files,
 				],
+				actorId: "user",
 				createdAt: pending.createdAt,
 			}));
 		const merged = [...chat.messages, ...optimisticMessages];

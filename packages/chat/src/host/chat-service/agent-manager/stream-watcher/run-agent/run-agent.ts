@@ -409,8 +409,13 @@ async function writeToDurableStream(
 	options?: { runId?: string },
 ) {
 	const messageId = crypto.randomUUID();
+	const startedAt = new Date().toISOString();
 	const aiStream = toAISdkStream(stream, {
 		from: "agent",
+		messageMetadata: () => ({
+			startedAt,
+			finishedAt: new Date().toISOString(),
+		}),
 	}) as unknown as ReadableStream<UIMessageChunk>;
 	const streamWithMetadata =
 		typeof options?.runId === "string" && options.runId.length > 0

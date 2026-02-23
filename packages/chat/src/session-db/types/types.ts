@@ -3,6 +3,18 @@ import type { UIMessage, UIMessageChunk } from "ai";
 /** Convenience alias — UIMessagePart is generic; this uses defaults. */
 export type AnyUIMessagePart = UIMessage["parts"][number];
 
+/** Metadata attached to assistant messages via AI SDK messageMetadata. */
+export interface AssistantMessageMetadata {
+	startedAt?: string; // ISO timestamp
+	finishedAt?: string; // ISO timestamp
+}
+
+/** UIMessage parameterized with our metadata + session fields. */
+export type SupersetUIMessage = UIMessage<AssistantMessageMetadata> & {
+	actorId: string;
+	createdAt: Date;
+};
+
 /**
  * Whole message chunk — stored as single row in stream.
  * Used for messages that are complete when written (user input, cached messages).
@@ -43,4 +55,6 @@ export interface MessageRow {
 	createdAt: Date;
 	/** Timestamp of the most recent chunk (for staleness detection) */
 	lastChunkAt: Date;
+	/** Optional timing metadata from AI SDK messageMetadata */
+	metadata?: AssistantMessageMetadata;
 }

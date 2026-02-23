@@ -1,3 +1,4 @@
+import type { SupersetUIMessage } from "@superset/chat/client";
 import {
 	Conversation,
 	ConversationContent,
@@ -6,17 +7,18 @@ import {
 } from "@superset/ui/ai-elements/conversation";
 import { Message, MessageContent } from "@superset/ui/ai-elements/message";
 import { ShimmerLabel } from "@superset/ui/ai-elements/shimmer-label";
-import type { ChatStatus, UIMessage } from "ai";
+import type { ChatStatus } from "ai";
 import { FileIcon, FileTextIcon, ImageIcon } from "lucide-react";
 import { useCallback } from "react";
 import { HiMiniChatBubbleLeftRight } from "react-icons/hi2";
 import { useTabsStore } from "renderer/stores/tabs/store";
 import type { InterruptedMessagePreview } from "../../types";
 import { MessagePartsRenderer } from "../MessagePartsRenderer";
+import { AgentMessageFooter } from "./components/AgentMessageFooter";
 import { MessageScrollbackRail } from "./components/MessageScrollbackRail";
 
 interface MessageListProps {
-	messages: UIMessage[];
+	messages: SupersetUIMessage[];
 	interruptedMessage?: InterruptedMessagePreview | null;
 	isStreaming: boolean;
 	submitStatus?: ChatStatus;
@@ -48,6 +50,44 @@ function FileChip({
 			<span className="max-w-[150px] truncate">{filename || "Attachment"}</span>
 		</div>
 	);
+}
+
+function extractTextContent(msg: SupersetUIMessage): string {
+	return msg.parts
+		.filter((p) => p.type === "text")
+		.map((p) => p.text)
+		.join("");
+}
+
+/** Epoch ms from a Date or date-like value, or undefined if missing. */
+function toEpochMs(value: Date | string | undefined): number | undefined {
+	if (!value) return undefined;
+	const ms =
+		value instanceof Date ? value.getTime() : new Date(value).getTime();
+	return Number.isNaN(ms) ? undefined : ms;
+}
+
+/** Find the preceding user message's createdAt as epoch ms. */
+function getPrecedingUserSendTime(
+	messages: SupersetUIMessage[],
+	index: number,
+): number | undefined {
+	for (let i = index - 1; i >= 0; i--) {
+		const ms = messages[i].role === "user" && toEpochMs(messages[i].createdAt);
+		if (ms) return ms;
+	}
+	return toEpochMs(messages[index]?.createdAt);
+}
+
+/** Get the last user message's createdAt as epoch ms. */
+function getLastUserSendTime(
+	messages: SupersetUIMessage[],
+): number | undefined {
+	for (let i = messages.length - 1; i >= 0; i--) {
+		const ms = messages[i].role === "user" && toEpochMs(messages[i].createdAt);
+		if (ms) return ms;
+	}
+	return undefined;
 }
 
 export function MessageList({
@@ -148,6 +188,7 @@ export function MessageList({
 							);
 						}
 
+						const startedAt = getPrecedingUserSendTime(messages, index);
 						return (
 							<Message key={msg.id} from={msg.role}>
 								<MessageContent>
@@ -165,6 +206,14 @@ export function MessageList({
 										/>
 									)}
 								</MessageContent>
+								{startedAt != null && (
+									<AgentMessageFooter
+										startedAt={startedAt}
+										metadata={msg.metadata}
+										isStreaming={shouldAnimateStreaming}
+										messageText={extractTextContent(msg)}
+									/>
+								)}
 							</Message>
 						);
 					})
@@ -195,6 +244,13 @@ export function MessageList({
 								Thinking...
 							</ShimmerLabel>
 						</MessageContent>
+						{getLastUserSendTime(messages) != null && (
+							<AgentMessageFooter
+								startedAt={getLastUserSendTime(messages) as number}
+								isStreaming
+								messageText=""
+							/>
+						)}
 					</Message>
 				)}
 			</ConversationContent>

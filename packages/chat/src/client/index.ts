@@ -1,3 +1,7 @@
+export type {
+	AssistantMessageMetadata,
+	SupersetUIMessage,
+} from "../session-db/types";
 export { ChatServiceProvider, chatServiceTrpc } from "./provider";
 export type { UseChatOptions, UseChatReturn } from "./useChat";
 export { useChat } from "./useChat";
