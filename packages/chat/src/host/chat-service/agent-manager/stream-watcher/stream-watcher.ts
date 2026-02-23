@@ -5,7 +5,12 @@ import {
 import type { UIMessage } from "ai";
 import type { GetHeaders } from "../../../lib/auth/auth";
 import { sessionAbortControllers, sessionRunIds } from "../session-state";
-import { resumeAgent, runAgent, writeMcpConfigChunk } from "./run-agent";
+import {
+	continueAgentWithToolOutput,
+	resumeAgent,
+	runAgent,
+	writeMcpConfigChunk,
+} from "./run-agent";
 import { SessionHost } from "./session-host";
 
 /**
@@ -23,6 +28,7 @@ export class StreamWatcher {
 	private readonly getHeaders: GetHeaders;
 	private mcpToolsets: LoadedMcpToolsetsResult | null = null;
 	private mcpLoadPromise: Promise<LoadedMcpToolsetsResult> | null = null;
+	private readonly defaultModelId = "anthropic/claude-sonnet-4-6";
 	private status: "idle" | "starting" | "ready" = "idle";
 	private startPromise: Promise<void> | null = null;
 
@@ -62,7 +68,7 @@ export class StreamWatcher {
 					text,
 					message,
 					host: this.host,
-					modelId: metadata?.model ?? "anthropic/claude-sonnet-4-6",
+					modelId: metadata?.model ?? this.defaultModelId,
 					cwd: this.cwd,
 					permissionMode: metadata?.permissionMode ?? "bypassPermissions",
 					thinkingEnabled: metadata?.thinkingEnabled ?? false,
@@ -73,20 +79,41 @@ export class StreamWatcher {
 			})();
 		});
 
-		this.host.on("toolResult", ({ answers }) => {
-			const runId = sessionRunIds.get(options.sessionId);
-			if (runId) {
-				void resumeAgent({
-					sessionId: options.sessionId,
-					runId,
-					host: this.host,
-					approved: true,
-					answers,
-				});
-			}
-		});
+		this.host.on(
+			"toolOutput",
+			({ toolCallId, tool, state, output, errorText }) => {
+				const recoveredRunId = this.host.getLatestRunId();
+				const runId =
+					sessionRunIds.get(options.sessionId) ?? recoveredRunId ?? undefined;
+				if (runId) {
+					sessionRunIds.set(options.sessionId, runId);
+				}
 
-		this.host.on("toolApproval", ({ approved, permissionMode }) => {
+				void continueAgentWithToolOutput({
+					sessionId: options.sessionId,
+					host: this.host,
+					runId,
+					toolCallId,
+					toolName: tool,
+					state,
+					output,
+					errorText,
+					fallbackContext: {
+						cwd: this.cwd,
+						modelId: this.defaultModelId,
+						permissionMode: "bypassPermissions",
+						thinkingEnabled: false,
+						requestEntries: [
+							["modelId", this.defaultModelId],
+							["cwd", this.cwd],
+							["apiUrl", options.apiUrl],
+						],
+					},
+				});
+			},
+		);
+
+		this.host.on("toolApproval", ({ approved, permissionMode, toolCallId }) => {
 			const runId = sessionRunIds.get(options.sessionId);
 			if (runId) {
 				void resumeAgent({
@@ -94,6 +121,7 @@ export class StreamWatcher {
 					runId,
 					host: this.host,
 					approved,
+					toolCallId,
 					permissionMode,
 				});
 			}
