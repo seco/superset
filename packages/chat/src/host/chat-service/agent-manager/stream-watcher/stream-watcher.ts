@@ -21,6 +21,7 @@ export class StreamWatcher {
 	private readonly sessionId: string;
 	private readonly cwd: string;
 	private readonly onLifecycleEvent?: (event: ChatLifecycleEvent) => void;
+	private readonly onAgentRunComplete?: (sessionId: string) => void;
 	private readonly defaultModelId = "anthropic/claude-sonnet-4-6";
 	private status: "idle" | "starting" | "ready" = "idle";
 	private startPromise: Promise<void> | null = null;
@@ -31,10 +32,12 @@ export class StreamWatcher {
 		cwd: string;
 		getHeaders: GetHeaders;
 		onLifecycleEvent?: (event: ChatLifecycleEvent) => void;
+		onAgentRunComplete?: (sessionId: string) => void;
 	}) {
 		this.sessionId = options.sessionId;
 		this.cwd = options.cwd;
 		this.onLifecycleEvent = options.onLifecycleEvent;
+		this.onAgentRunComplete = options.onAgentRunComplete;
 
 		this.host = new SessionHost({
 			sessionId: options.sessionId,
@@ -151,6 +154,7 @@ export class StreamWatcher {
 			await action();
 		} finally {
 			this.emitLifecycle("Stop");
+			this.onAgentRunComplete?.(this.sessionId);
 		}
 	}
 
