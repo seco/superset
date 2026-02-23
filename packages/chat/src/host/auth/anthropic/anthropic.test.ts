@@ -178,4 +178,25 @@ describe("getOrRefreshAnthropicOAuthCredentials", () => {
 			console.warn = originalWarn;
 		}
 	});
+
+	it("returns null when forced refresh is requested but refresh token is missing", async () => {
+		const now = 1_700_000_000_000;
+		const configPath = createConfigFile({
+			oauthAccessToken: "expired_access",
+			oauthExpiresAt: now - 60_000,
+		});
+		const fetchImpl = mock(async () => {
+			throw new Error("fetch should not be called without refresh token");
+		});
+
+		const result = await getOrRefreshAnthropicOAuthCredentials({
+			forceRefresh: true,
+			configPaths: [configPath],
+			fetchImpl: fetchImpl as unknown as typeof fetch,
+			nowMs: () => now,
+		});
+
+		expect(result).toBeNull();
+		expect(fetchImpl).toHaveBeenCalledTimes(0);
+	});
 });

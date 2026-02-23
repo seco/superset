@@ -280,6 +280,9 @@ export async function getOrRefreshAnthropicOAuthCredentials(
 	}
 
 	if (!credentials.refreshToken) {
+		if (forceRefresh) {
+			return null;
+		}
 		// No refresh token available, keep using existing access token.
 		return credentials;
 	}
