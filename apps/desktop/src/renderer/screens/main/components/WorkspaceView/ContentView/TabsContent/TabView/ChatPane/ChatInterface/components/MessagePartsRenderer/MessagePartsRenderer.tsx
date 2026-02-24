@@ -1,9 +1,7 @@
 import { ExploringGroup } from "@superset/ui/ai-elements/exploring-group";
-import { Button } from "@superset/ui/button";
 import type { UIMessage } from "ai";
 import { getToolName, isToolUIPart } from "ai";
 import {
-	AlertCircleIcon,
 	FileIcon,
 	FileSearchIcon,
 	FolderTreeIcon,
@@ -17,6 +15,7 @@ import { useTabsStore } from "renderer/stores/tabs/store";
 import { READ_ONLY_TOOLS } from "../../constants";
 import type { ToolPart } from "../../utils/tool-helpers";
 import { getArgs } from "../../utils/tool-helpers";
+import { ChatErrorMessage } from "../ChatErrorMessage";
 import { MastraToolCallBlock } from "../MastraToolCallBlock";
 import { ReadOnlyToolCall } from "../ReadOnlyToolCall";
 import { ReasoningBlock } from "../ReasoningBlock";
@@ -121,43 +120,21 @@ export function MessagePartsRenderer({
 
 				if (oauthReauth) {
 					nodes.push(
-						<div
+						<ChatErrorMessage
 							key={i}
-							className="flex flex-col gap-3 rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive"
-						>
-							<div className="flex items-start gap-2">
-								<AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
-								<div className="space-y-1">
-									<div className="font-medium">{oauthReauth.title}</div>
-									<div className="text-destructive/90">
-										{oauthReauth.description}
-									</div>
-								</div>
-							</div>
-							<div className="pl-6">
-								<Button
-									size="sm"
-									variant="outline"
-									onClick={() => openUrl.mutate(oauthReauth.actionUrl)}
-								>
-									{oauthReauth.actionLabel}
-								</Button>
-							</div>
-						</div>,
+							title={oauthReauth.title}
+							message={oauthReauth.description}
+							action={{
+								label: oauthReauth.actionLabel,
+								onClick: () => openUrl.mutate(oauthReauth.actionUrl),
+							}}
+						/>,
 					);
 					i++;
 					continue;
 				}
 
-				nodes.push(
-					<div
-						key={i}
-						className="flex items-start gap-2 rounded-md border border-destructive/20 bg-destructive/10 px-4 py-2 text-sm text-destructive"
-					>
-						<AlertCircleIcon className="mt-0.5 h-4 w-4 shrink-0" />
-						<span className="select-text">{errorPart.text}</span>
-					</div>,
-				);
+				nodes.push(<ChatErrorMessage key={i} message={errorPart.text} />);
 				i++;
 				continue;
 			}
