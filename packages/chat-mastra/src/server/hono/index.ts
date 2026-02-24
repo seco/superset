@@ -1,1 +1,1 @@
-export { createChatHonoApp } from "./hono";
+export { createChatMastraHonoApp } from "./hono";

@@ -18,6 +18,7 @@ export const sessionIdInput = z.object({
 export const ensureRuntimeInput = z.object({
 	sessionId: z.uuid(),
 	cwd: z.string().optional(),
+	workspaceId: z.uuid().optional(),
 });
 
 export const sendMessageInput = z.object({
@@ -43,33 +44,35 @@ export const sendMessageInput = z.object({
 });
 
 export const controlInput = z.object({
-	sessionId: z.string().uuid(),
-	action: z.string(),
-});
-
-export const toolOutputInput = z.object({
-	sessionId: z.string().uuid(),
-	tool: z.string(),
-	toolCallId: z.string(),
-	output: z.unknown().optional(),
-	error: z.string().optional(),
+	sessionId: z.uuid(),
+	action: z.enum(["stop", "abort"]),
 });
 
 export const approvalRespondInput = z.object({
-	sessionId: z.string().uuid(),
+	sessionId: z.uuid(),
 	decision: z.enum(["approve", "deny"]),
 	toolCallId: z.string().optional(),
 });
 
 export const questionRespondInput = z.object({
-	sessionId: z.string().uuid(),
+	sessionId: z.uuid(),
 	questionId: z.string(),
 	answer: z.string(),
 });
 
 export const planRespondInput = z.object({
-	sessionId: z.string().uuid(),
+	sessionId: z.uuid(),
 	planId: z.string(),
 	action: z.enum(["accept", "reject", "revise"]),
 	feedback: z.string().optional(),
 });
+
+export type StartInput = z.infer<typeof startInput>;
+export type SearchFilesInput = z.infer<typeof searchFilesInput>;
+export type SessionIdInput = z.infer<typeof sessionIdInput>;
+export type EnsureRuntimeInput = z.infer<typeof ensureRuntimeInput>;
+export type SendMessageInput = z.infer<typeof sendMessageInput>;
+export type ControlInput = z.infer<typeof controlInput>;
+export type ApprovalRespondInput = z.infer<typeof approvalRespondInput>;
+export type QuestionRespondInput = z.infer<typeof questionRespondInput>;
+export type PlanRespondInput = z.infer<typeof planRespondInput>;

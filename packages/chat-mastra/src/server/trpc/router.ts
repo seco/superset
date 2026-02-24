@@ -1,5 +1,18 @@
 import { initTRPC } from "@trpc/server";
 import superjson from "superjson";
+import {
+	approvalRespond as approvalRespondRuntime,
+	configureRuntimeState,
+	control as controlRuntime,
+	ensureRuntime as ensureRuntimeState,
+	hasRuntime as hasRuntimeState,
+	planRespond as planRespondRuntime,
+	questionRespond as questionRespondRuntime,
+	sendMessage as sendMessageRuntime,
+	startRuntimeService,
+	stopRuntimeService,
+	type RuntimeConfig,
+} from "./runtime/runtime-state";
 import { searchFiles } from "./utils/file-search";
 import {
 	approvalRespondInput,
@@ -11,31 +24,25 @@ import {
 	sendMessageInput,
 	sessionIdInput,
 	startInput,
-	toolOutputInput,
 } from "./zod";
 
 const t = initTRPC.create({ transformer: superjson });
 
-interface RuntimeState {
-	sessionId: string;
-	cwd?: string;
-	createdAt: Date;
-	updatedAt: Date;
-}
+export type CreateChatMastraServiceRouterOptions = RuntimeConfig;
 
-export function createChatMastraServiceRouter() {
-	let started = false;
-	const runtimes = new Map<string, RuntimeState>();
+export function createChatMastraServiceRouter(
+	options: CreateChatMastraServiceRouterOptions,
+) {
+	configureRuntimeState(options);
 
 	return t.router({
-		start: t.procedure.input(startInput).mutation(async () => {
-			started = true;
+		start: t.procedure.input(startInput).mutation(async ({ input }) => {
+			startRuntimeService(input.organizationId);
 			return { success: true };
 		}),
 
-		stop: t.procedure.mutation(() => {
-			started = false;
-			runtimes.clear();
+		stop: t.procedure.mutation(async () => {
+			await stopRuntimeService();
 			return { success: true };
 		}),
 
@@ -55,77 +62,38 @@ export function createChatMastraServiceRouter() {
 		session: t.router({
 			isActive: t.procedure.input(sessionIdInput).query(({ input }) => {
 				return {
-					active: runtimes.has(input.sessionId),
+					active: hasRuntimeState(input.sessionId),
 				};
 			}),
 
 			ensureRuntime: t.procedure
 				.input(ensureRuntimeInput)
-				.mutation(async ({ input }) => {
-					if (!started) {
-						return {
-							ready: false,
-							reason: "Chat Mastra service is not started",
-						};
-					}
-
-					const now = new Date();
-					const existing = runtimes.get(input.sessionId);
-					if (existing) {
-						existing.cwd = input.cwd ?? existing.cwd;
-						existing.updatedAt = now;
-						runtimes.set(input.sessionId, existing);
-						return { ready: true };
-					}
-
-					runtimes.set(input.sessionId, {
-						sessionId: input.sessionId,
-						cwd: input.cwd,
-						createdAt: now,
-						updatedAt: now,
-					});
-
-					return { ready: true };
-				}),
+				.mutation(async ({ input }) => ensureRuntimeState(input)),
 
 			sendMessage: t.procedure
 				.input(sendMessageInput)
-				.mutation(async ({ input }) => {
-					const runtime = runtimes.get(input.sessionId);
-					if (!runtime) return { accepted: false };
-					runtime.updatedAt = new Date();
-					runtimes.set(input.sessionId, runtime);
-					return { accepted: true };
-				}),
+				.mutation(async ({ input }) => sendMessageRuntime(input)),
 
-			control: t.procedure.input(controlInput).mutation(async ({ input }) => {
-				const runtime = runtimes.get(input.sessionId);
-				if (!runtime) return { accepted: false };
-				runtime.updatedAt = new Date();
-				runtimes.set(input.sessionId, runtime);
-				return { accepted: true };
-			}),
-
-			toolOutput: t.procedure
-				.input(toolOutputInput)
-				.mutation(async () => ({ accepted: true })),
+			control: t.procedure
+				.input(controlInput)
+				.mutation(async ({ input }) => controlRuntime(input)),
 
 			approval: t.router({
 				respond: t.procedure
 					.input(approvalRespondInput)
-					.mutation(async () => ({ accepted: true })),
+					.mutation(async ({ input }) => approvalRespondRuntime(input)),
 			}),
 
 			question: t.router({
 				respond: t.procedure
 					.input(questionRespondInput)
-					.mutation(async () => ({ accepted: true })),
+					.mutation(async ({ input }) => questionRespondRuntime(input)),
 			}),
 
 			plan: t.router({
 				respond: t.procedure
 					.input(planRespondInput)
-					.mutation(async () => ({ accepted: true })),
+					.mutation(async ({ input }) => planRespondRuntime(input)),
 			}),
 		}),
 	});
