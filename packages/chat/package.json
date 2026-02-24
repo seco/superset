@@ -26,10 +26,10 @@
 		"test": "bun test"
 	},
 	"dependencies": {
+		"@ai-sdk/anthropic": "^3.0.43",
 		"@durable-streams/client": "^0.2.1",
 		"@durable-streams/state": "^0.2.0",
 		"@electric-sql/client": "1.5.2",
-		"@ai-sdk/anthropic": "^3.0.43",
 		"@superset/agent": "workspace:*",
 		"@superset/trpc": "workspace:*",
 		"@tanstack/db": "0.5.25",

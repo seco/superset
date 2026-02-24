@@ -703,7 +703,6 @@
       "name": "@superset/trpc",
       "version": "0.1.0",
       "dependencies": {
-        "@anthropic-ai/sdk": "^0.72.1",
         "@linear/sdk": "^68.1.0",
         "@superset/auth": "workspace:*",
         "@superset/db": "workspace:*",
