@@ -16,7 +16,7 @@ import {
 	buildTaskMentionContext,
 	parseTaskMentions,
 } from "./context/task-mentions";
-import { runWithAnthropicOAuthRetry } from "./run-agent-oauth";
+import { runWithProviderAuthRetry } from "./provider-auth-retry";
 import {
 	buildAgentCallOptions,
 	buildRequestEntries,
@@ -101,11 +101,13 @@ export async function runAgent(options: RunAgentOptions): Promise<void> {
 			thinkingEnabled,
 		});
 
-		const output = await runWithAnthropicOAuthRetry(() =>
-			superagent.stream(streamInput, {
-				...agentCallOptions,
-				...(contextInstructions ? { instructions: contextInstructions } : {}),
-			}),
+		const output = await runWithProviderAuthRetry(
+			() =>
+				superagent.stream(streamInput, {
+					...agentCallOptions,
+					...(contextInstructions ? { instructions: contextInstructions } : {}),
+				}),
+			{ modelId },
 		);
 
 		if (output.runId) {
@@ -195,12 +197,14 @@ export async function continueAgentWithToolOutput(
 	});
 
 	try {
-		const stream = await runWithAnthropicOAuthRetry(() =>
-			superagent.resumeStream(resumeData, {
-				runId,
-				toolCallId: normalizeToolCallId(toolCallId),
-				...agentCallOptions,
-			}),
+		const stream = await runWithProviderAuthRetry(
+			() =>
+				superagent.resumeStream(resumeData, {
+					runId,
+					toolCallId: normalizeToolCallId(toolCallId),
+					...agentCallOptions,
+				}),
+			{ modelId: ctx.modelId },
 		);
 
 		if (stream.runId) {
@@ -261,18 +265,20 @@ export async function resumeAgent(options: ResumeAgentOptions): Promise<void> {
 	const abortController = resetSessionAbortController(sessionId);
 
 	try {
-		const stream = await runWithAnthropicOAuthRetry(() =>
-			approved
-				? superagent.approveToolCall({
-						runId,
-						...(toolCallId ? { toolCallId } : {}),
-						requestContext: reqCtx,
-					})
-				: superagent.declineToolCall({
-						runId,
-						...(toolCallId ? { toolCallId } : {}),
-						requestContext: reqCtx,
-					}),
+		const stream = await runWithProviderAuthRetry(
+			() =>
+				approved
+					? superagent.approveToolCall({
+							runId,
+							...(toolCallId ? { toolCallId } : {}),
+							requestContext: reqCtx,
+						})
+					: superagent.declineToolCall({
+							runId,
+							...(toolCallId ? { toolCallId } : {}),
+							requestContext: reqCtx,
+						}),
+			{ modelId: ctx?.modelId },
 		);
 
 		await writeToDurableStream(stream, host, abortController.signal, {

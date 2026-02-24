@@ -53,8 +53,11 @@ const buildFileMentionContext = mock(() => "");
 const parseTaskMentions = mock(() => []);
 const buildTaskMentionContext = mock(async () => "");
 
-const runWithAnthropicOAuthRetry = mock(
-	async <T>(operation: () => Promise<T>): Promise<T> => operation(),
+const runWithProviderAuthRetry = mock(
+	async <T>(
+		operation: () => Promise<T>,
+		_options: { modelId?: string },
+	): Promise<T> => operation(),
 );
 
 mock.module("@superset/agent", () => ({
@@ -77,8 +80,8 @@ mock.module("./context/task-mentions", () => ({
 	buildTaskMentionContext,
 }));
 
-mock.module("./run-agent-oauth", () => ({
-	runWithAnthropicOAuthRetry,
+mock.module("./provider-auth-retry", () => ({
+	runWithProviderAuthRetry,
 }));
 
 const { runAgent, continueAgentWithToolOutput, resumeAgent } = await import(
@@ -110,7 +113,7 @@ beforeEach(() => {
 	buildFileMentionContext.mockClear();
 	parseTaskMentions.mockClear();
 	buildTaskMentionContext.mockClear();
-	runWithAnthropicOAuthRetry.mockClear();
+	runWithProviderAuthRetry.mockClear();
 
 	sessionAbortControllers.clear();
 	sessionContext.clear();
@@ -140,7 +143,11 @@ describe("runAgent", () => {
 			getHeaders: async () => ({ Authorization: "Bearer token" }),
 		});
 
-		expect(runWithAnthropicOAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledWith(
+			expect.any(Function),
+			{ modelId: "anthropic/claude-sonnet-4-6" },
+		);
 		expect(superagentMocks.stream).toHaveBeenCalledTimes(1);
 		expect(superagentMocks.stream).toHaveBeenCalledWith(
 			"hello",
@@ -193,6 +200,29 @@ describe("runAgent", () => {
 		expect(metadata.type).toBe("message-metadata");
 		expect(metadata.messageMetadata?.runId).toBe("run-123");
 		expect(sessionAbortControllers.has("session-1")).toBe(false);
+	});
+
+	it("bypasses anthropic oauth retry for non-anthropic models", async () => {
+		const { host, writeStream } = createHost();
+		superagentMocks.stream.mockResolvedValue(createAgentOutput("run-openai"));
+
+		await runAgent({
+			sessionId: "session-openai",
+			text: "hello",
+			host,
+			modelId: "openai/gpt-4.1",
+			cwd: "/tmp/repo",
+			apiUrl: "https://api.example.com",
+			getHeaders: async () => ({}),
+		});
+
+		expect(runWithProviderAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledWith(
+			expect.any(Function),
+			{ modelId: "openai/gpt-4.1" },
+		);
+		expect(superagentMocks.stream).toHaveBeenCalledTimes(1);
+		expect(writeStream).toHaveBeenCalledTimes(1);
 	});
 
 	it("writes failure chunk/log and clears session state on stream errors", async () => {
@@ -264,7 +294,11 @@ describe("continueAgentWithToolOutput", () => {
 			fallbackContext,
 		});
 
-		expect(runWithAnthropicOAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledWith(
+			expect.any(Function),
+			{ modelId: "anthropic/claude-sonnet-4-6" },
+		);
 		expect(superagentMocks.resumeStream).toHaveBeenCalledWith(
 			{ answers: { foo: "bar" } },
 			expect.objectContaining({
@@ -292,6 +326,42 @@ describe("continueAgentWithToolOutput", () => {
 		});
 		expect(writeStream).toHaveBeenCalledTimes(1);
 	});
+
+	it("bypasses anthropic oauth retry for non-anthropic session context", async () => {
+		const { host, writeStream } = createHost();
+		superagentMocks.resumeStream.mockResolvedValue(createAgentOutput("run-3"));
+
+		const fallbackContext: SessionContext = {
+			cwd: "/tmp/repo",
+			modelId: "openai/gpt-4.1",
+			permissionMode: "default",
+			thinkingEnabled: false,
+			requestEntries: [
+				["modelId", "openai/gpt-4.1"],
+				["cwd", "/tmp/repo"],
+				["apiUrl", "https://api.example.com"],
+			],
+		};
+
+		await continueAgentWithToolOutput({
+			sessionId: "session-openai-continue",
+			host,
+			runId: "run-1",
+			toolCallId: "tool-123",
+			toolName: "my_tool",
+			state: "output-available",
+			output: { answers: { foo: "bar" } },
+			fallbackContext,
+		});
+
+		expect(runWithProviderAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledWith(
+			expect.any(Function),
+			{ modelId: "openai/gpt-4.1" },
+		);
+		expect(superagentMocks.resumeStream).toHaveBeenCalledTimes(1);
+		expect(writeStream).toHaveBeenCalledTimes(1);
+	});
 });
 
 describe("resumeAgent", () => {
@@ -317,7 +387,11 @@ describe("resumeAgent", () => {
 			permissionMode: "acceptEdits",
 		});
 
-		expect(runWithAnthropicOAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledWith(
+			expect.any(Function),
+			{ modelId: "anthropic/claude-sonnet-4-6" },
+		);
 		expect(superagentMocks.approveToolCall).toHaveBeenCalledWith(
 			expect.objectContaining({
 				runId: "run-approve",
@@ -342,13 +416,47 @@ describe("resumeAgent", () => {
 			toolCallId: "tool-2",
 		});
 
-		expect(runWithAnthropicOAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledWith(
+			expect.any(Function),
+			{ modelId: undefined },
+		);
 		expect(superagentMocks.declineToolCall).toHaveBeenCalledWith(
 			expect.objectContaining({
 				runId: "run-decline",
 				toolCallId: "tool-2",
 			}),
 		);
+		expect(writeStream).toHaveBeenCalledTimes(1);
+	});
+
+	it("bypasses anthropic oauth retry for non-anthropic resume", async () => {
+		const { host, writeStream } = createHost();
+		superagentMocks.approveToolCall.mockResolvedValue(
+			createAgentOutput("run-openai-approve"),
+		);
+		sessionContext.set("session-openai-resume", {
+			cwd: "/tmp/repo",
+			modelId: "openai/gpt-4.1",
+			permissionMode: "default",
+			thinkingEnabled: false,
+			requestEntries: [["modelId", "openai/gpt-4.1"]],
+		});
+
+		await resumeAgent({
+			sessionId: "session-openai-resume",
+			runId: "run-openai-approve",
+			host,
+			approved: true,
+			toolCallId: "tool-1",
+		});
+
+		expect(runWithProviderAuthRetry).toHaveBeenCalledTimes(1);
+		expect(runWithProviderAuthRetry).toHaveBeenCalledWith(
+			expect.any(Function),
+			{ modelId: "openai/gpt-4.1" },
+		);
+		expect(superagentMocks.approveToolCall).toHaveBeenCalledTimes(1);
 		expect(writeStream).toHaveBeenCalledTimes(1);
 	});
 });
