@@ -1,8 +1,8 @@
 import { skipToken } from "@tanstack/react-query";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ChatMastraServiceRouter } from "../../server/trpc";
-import { chatMastraServiceTrpc } from "../provider";
+import type { ChatMastraServiceRouter } from "../../../server/trpc";
+import { chatMastraServiceTrpc } from "../../provider";
 
 type RouterInputs = inferRouterInputs<ChatMastraServiceRouter>;
 type RouterOutputs = inferRouterOutputs<ChatMastraServiceRouter>;

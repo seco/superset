@@ -28,4 +28,4 @@ export {
 	type UseMastraChatDisplayOptions,
 	type UseMastraChatDisplayReturn,
 	useMastraChatDisplay,
-} from "./use-mastra-chat-display";
+} from "./hooks/use-mastra-chat-display";
