@@ -1,7 +1,5 @@
-import { createAnthropic } from "@ai-sdk/anthropic";
+import Anthropic from "@anthropic-ai/sdk";
 import { getAnthropicAuthToken } from "@superset/agent";
-import { generateObject } from "ai";
-import { z } from "zod";
 import type { GetHeaders } from "../lib/auth/auth";
 import { AgentManager, type AgentManagerConfig } from "./agent-manager";
 
@@ -11,14 +9,6 @@ export interface ChatLifecycleEvent {
 	sessionId: string;
 	eventType: ChatLifecycleEventType;
 }
-
-const titleSchema = z.object({
-	title: z
-		.string()
-		.describe(
-			"A concise 2-5 word title for a coding chat session. Examples: 'Fix Auth Middleware', 'Drizzle Schema Migration', 'React State Refactor', 'WebSocket Setup'",
-		),
-});
 
 export interface ChatServiceHostConfig {
 	deviceId: string;
@@ -106,23 +96,25 @@ export class ChatService {
 		}
 
 		const digest = messages.map((m) => `${m.role}: ${m.text}`).join("\n");
-		const provider = createAnthropic({
+		const client = new Anthropic({
 			authToken,
-			headers: {
-				"anthropic-beta": "claude-code-20250219,oauth-2025-04-20",
-				"user-agent": "claude-cli/2.1.2 (external, cli)",
-				"x-app": "cli",
+			defaultHeaders: {
+				"anthropic-beta": "oauth-2025-04-20",
 			},
 		});
 
-		const result = await generateObject({
-			model: provider("claude-haiku-4-5-20251001"),
-			schema: titleSchema,
+		const response = await client.messages.create({
+			model: "claude-haiku-4-5-20251001",
+			max_tokens: 30,
 			system:
-				"You are a title generator for a coding assistant chat. Generate a concise 2-5 word title summarizing the conversation topic.",
-			prompt: digest,
+				"Generate a concise 2-5 word title for this coding chat. Respond with just the title, nothing else.",
+			messages: [{ role: "user", content: digest }],
 		});
 
-		return { title: result.object.title ?? "Untitled Chat" };
+		const text =
+			response.content[0]?.type === "text"
+				? response.content[0].text.trim()
+				: null;
+		return { title: text || "Untitled Chat" };
 	}
 }

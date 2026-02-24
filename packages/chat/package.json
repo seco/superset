@@ -26,7 +26,7 @@
 		"test": "bun test"
 	},
 	"dependencies": {
-		"@ai-sdk/anthropic": "^3.0.43",
+		"@anthropic-ai/sdk": "^0.78.0",
 		"@durable-streams/client": "^0.2.1",
 		"@durable-streams/state": "^0.2.0",
 		"@electric-sql/client": "1.5.2",
