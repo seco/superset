@@ -1,0 +1,1 @@
+export { createChatHonoApp } from "./hono";
