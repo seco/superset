@@ -13,16 +13,24 @@ import type {
 	EnsureRuntimeInput,
 	PlanRespondInput,
 	QuestionRespondInput,
+	SessionIdInput,
 	SendMessageInput,
 } from "../zod";
 
+type RuntimeHarness = Awaited<ReturnType<typeof createMastraCode>>["harness"];
+type HarnessEvent = Parameters<Parameters<RuntimeHarness["subscribe"]>[0]>[0];
+
 interface RuntimeSession {
 	sessionId: string;
-	harness: ReturnType<typeof createMastraCode>["harness"];
+	harness: RuntimeHarness;
 	producer: SessionStreamProducer;
 	unsubscribe: () => void;
 	sequenceHint: number;
 	cwd?: string;
+}
+
+interface HarnessWithDisplayState {
+	getDisplayState?: () => unknown;
 }
 
 export interface RuntimeConfig {
@@ -143,6 +151,32 @@ export function hasRuntime(sessionId: string): boolean {
 	return runtimes.has(sessionId);
 }
 
+export function getDisplayState(
+	input: SessionIdInput,
+): { ready: boolean; displayState?: unknown; reason?: string } {
+	const runtime = runtimes.get(input.sessionId);
+	if (!runtime) {
+		return {
+			ready: false,
+			reason: "Runtime not active for session",
+		};
+	}
+
+	const harness = runtime.harness as unknown as HarnessWithDisplayState;
+	if (typeof harness.getDisplayState !== "function") {
+		return {
+			ready: false,
+			reason:
+				"Mastra runtime does not expose getDisplayState(); upgrade mastracode/@mastra/core",
+		};
+	}
+
+	return {
+		ready: true,
+		displayState: harness.getDisplayState(),
+	};
+}
+
 export async function ensureRuntime(
 	input: EnsureRuntimeInput,
 ): Promise<{ ready: boolean; reason?: string }> {
@@ -178,7 +212,7 @@ export async function ensureRuntime(
 
 		const producer = createSessionStreamProducer(config.streams, input.sessionId);
 		const cwd = input.cwd ?? process.cwd();
-		const runtimeMastra = createMastraCode({ cwd });
+		const runtimeMastra = await createMastraCode({ cwd });
 		await runtimeMastra.harness.init();
 		runtimeMastra.harness.setResourceId({ resourceId: input.sessionId });
 		await runtimeMastra.harness.selectOrCreateThread();
@@ -193,7 +227,7 @@ export async function ensureRuntime(
 		};
 
 		runtimes.set(input.sessionId, runtime);
-		runtime.unsubscribe = runtime.harness.subscribe((event) => {
+		runtime.unsubscribe = runtime.harness.subscribe((event: HarnessEvent) => {
 			const current = runtimes.get(input.sessionId);
 			if (!current) return;
 			appendEvent(current, "harness", event);

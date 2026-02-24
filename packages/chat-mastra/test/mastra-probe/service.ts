@@ -17,7 +17,7 @@ import {
 
 interface SessionRuntime {
 	sessionId: string;
-	harness: ReturnType<typeof createMastraCode>["harness"];
+	harness: Awaited<ReturnType<typeof createMastraCode>>["harness"];
 	unsubscribe: () => void;
 	inFlight?: Promise<void>;
 	sequenceHint: number;
@@ -167,7 +167,7 @@ export function createMastraProbeService({
 			}
 
 			const cwd = input.cwd ?? defaultCwd ?? process.cwd();
-			const runtime = createMastraCode({
+			const runtime = await createMastraCode({
 				...(baseConfig ?? {}),
 				...(input.config ?? {}),
 				cwd,

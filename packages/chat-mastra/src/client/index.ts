@@ -8,10 +8,13 @@ export {
 	materializeMastraDisplayState,
 	materializeMastraDisplayStateFromRows,
 	serializeMastraDisplayState,
+	useMastraDisplayState,
 	type MastraChatEventEnvelope,
 	type MastraChatEventRow,
 	type MastraChatMaterializedState,
 	type MastraDisplayStateContract,
 	type UseMastraChatReturn,
+	type UseMastraDisplayStateOptions,
+	type UseMastraDisplayStateReturn,
 	type UseMastraChatState,
 } from "./use-mastra-chat";

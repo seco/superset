@@ -5,6 +5,7 @@ import {
 	configureRuntimeState,
 	control as controlRuntime,
 	ensureRuntime as ensureRuntimeState,
+	getDisplayState as getDisplayStateRuntime,
 	hasRuntime as hasRuntimeState,
 	planRespond as planRespondRuntime,
 	questionRespond as questionRespondRuntime,
@@ -65,6 +66,10 @@ export function createChatMastraServiceRouter(
 					active: hasRuntimeState(input.sessionId),
 				};
 			}),
+
+			getDisplayState: t.procedure
+				.input(sessionIdInput)
+				.query(({ input }) => getDisplayStateRuntime(input)),
 
 			ensureRuntime: t.procedure
 				.input(ensureRuntimeInput)

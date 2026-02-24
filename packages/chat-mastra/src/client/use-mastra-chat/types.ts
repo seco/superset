@@ -185,3 +185,18 @@ export interface UseMastraChatReturn {
 	respondToQuestion: (input: UseMastraChatQuestionInput) => Promise<void>;
 	respondToPlan: (input: UseMastraChatPlanInput) => Promise<void>;
 }
+
+export interface UseMastraDisplayStateOptions {
+	sessionId: string;
+	enabled?: boolean;
+	fps?: number;
+}
+
+export interface UseMastraDisplayStateReturn {
+	ready: boolean;
+	displayState: MastraDisplayStateContract | null;
+	reason: string | null;
+	isLoading: boolean;
+	error: unknown;
+	refetch: () => Promise<unknown>;
+}

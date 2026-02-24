@@ -40,6 +40,10 @@ interface MockHarness {
 		planId: string;
 		response: { action: string; feedback?: string };
 	}) => Promise<void>;
+	getDisplayState: () => {
+		isRunning: boolean;
+		tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
+	};
 	subscribe: (listener: (event: MockHarnessEvent) => void) => () => void;
 	emit: (event: MockHarnessEvent) => void;
 }
@@ -118,6 +122,14 @@ function createMockHarness(): MockHarness {
 		respondToPlanApproval: async ({ planId, response }) => {
 			harness.planCalls.push({ planId, response });
 		},
+		getDisplayState: () => ({
+			isRunning: false,
+			tokenUsage: {
+				promptTokens: harness.sendMessageCalls.length,
+				completionTokens: 0,
+				totalTokens: harness.sendMessageCalls.length,
+			},
+		}),
 		subscribe: (listener) => {
 			listeners.push(listener);
 			return () => {
@@ -371,6 +383,27 @@ describe("runtime-state", () => {
 			"question_submitted",
 			"plan_submitted",
 		]);
+	});
+
+	it("returns runtime display state when available", async () => {
+		await runtime.ensureRuntime({ sessionId: sessionA, cwd: "/tmp/project-a" });
+		await runtime.sendMessage({ sessionId: sessionA, content: "hello" });
+
+		const result = runtime.getDisplayState({ sessionId: sessionA });
+		expect(result.ready).toBeTrue();
+		expect(result.reason).toBeUndefined();
+		expect(result.displayState).toEqual({
+			isRunning: false,
+			tokenUsage: { promptTokens: 1, completionTokens: 0, totalTokens: 1 },
+		});
+	});
+
+	it("returns not-ready display state when runtime missing", () => {
+		const result = runtime.getDisplayState({ sessionId: sessionA });
+		expect(result).toEqual({
+			ready: false,
+			reason: "Runtime not active for session",
+		});
 	});
 
 	it("flushes and detaches producer on stop", async () => {

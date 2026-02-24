@@ -10,6 +10,7 @@ const HARNESS_EVENT_CLASSIFICATION: Record<string, "handled" | "auxiliary"> = {
 	thread_changed: "auxiliary",
 	thread_created: "auxiliary",
 	state_changed: "auxiliary",
+	display_state_changed: "auxiliary",
 	agent_start: "handled",
 	agent_end: "handled",
 	message_start: "handled",

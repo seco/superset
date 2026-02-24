@@ -5,6 +5,7 @@ export {
 	materializeMastraDisplayStateFromRows,
 	serializeMastraDisplayState,
 } from "./materialize";
+export { useMastraDisplayState } from "./use-mastra-display-state";
 export type {
 	MastraChatEventEnvelope,
 	MastraChatEventRow,
@@ -33,4 +34,6 @@ export type {
 	UseMastraChatReturn,
 	UseMastraChatSendMessageInput,
 	UseMastraChatState,
+	UseMastraDisplayStateOptions,
+	UseMastraDisplayStateReturn,
 } from "./types";
