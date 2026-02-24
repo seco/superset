@@ -41,9 +41,11 @@ export class ChatService {
 			organizationId: options.organizationId,
 			apiUrl: this.hostConfig.apiUrl,
 			getHeaders: this.hostConfig.getHeaders,
-			onLifecycleEvent: this.hostConfig.onLifecycleEvent,
-			onAgentRunComplete: (sessionId) => {
-				void this.maybeGenerateTitle(sessionId);
+			onLifecycleEvent: (event) => {
+				this.hostConfig.onLifecycleEvent?.(event);
+				if (event.eventType === "Stop") {
+					void this.maybeGenerateTitle(event.sessionId);
+				}
 			},
 		};
 

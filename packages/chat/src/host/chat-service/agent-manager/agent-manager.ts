@@ -26,7 +26,6 @@ export interface AgentManagerConfig {
 	apiUrl: string;
 	getHeaders: GetHeaders;
 	onLifecycleEvent?: (event: ChatLifecycleEvent) => void;
-	onAgentRunComplete?: (sessionId: string) => void;
 }
 
 export class AgentManager {
@@ -37,7 +36,6 @@ export class AgentManager {
 	private apiUrl: string;
 	private getHeaders: GetHeaders;
 	private onLifecycleEvent?: (event: ChatLifecycleEvent) => void;
-	private onAgentRunComplete?: (sessionId: string) => void;
 
 	constructor(config: AgentManagerConfig) {
 		this.deviceId = config.deviceId;
@@ -45,7 +43,6 @@ export class AgentManager {
 		this.apiUrl = config.apiUrl;
 		this.getHeaders = config.getHeaders;
 		this.onLifecycleEvent = config.onLifecycleEvent;
-		this.onAgentRunComplete = config.onAgentRunComplete;
 	}
 
 	async start(): Promise<void> {
@@ -135,7 +132,6 @@ export class AgentManager {
 			cwd: resolvedCwd,
 			getHeaders: this.getHeaders,
 			onLifecycleEvent: this.onLifecycleEvent,
-			onAgentRunComplete: this.onAgentRunComplete,
 		});
 		try {
 			await watcher.start();

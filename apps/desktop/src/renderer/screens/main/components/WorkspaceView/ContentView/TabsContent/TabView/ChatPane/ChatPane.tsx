@@ -130,7 +130,7 @@ export function ChatPane({
 	}, [tabId, sessionTitle, setTabAutoTitle]);
 
 	const handleSelectSession = useCallback(
-		(newSessionId: string, _title: string | null) => {
+		(newSessionId: string) => {
 			switchChatSession(paneId, newSessionId);
 		},
 		[paneId, switchChatSession],
