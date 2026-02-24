@@ -7,8 +7,9 @@ import {
 	CommandList,
 } from "@superset/ui/command";
 import { Input } from "@superset/ui/input";
+import { Spinner } from "@superset/ui/spinner";
 import type { ReactNode } from "react";
-import { LuChevronDown, LuChevronUp } from "react-icons/lu";
+import { LuChevronDown, LuChevronRight } from "react-icons/lu";
 
 export interface SearchDialogItem {
 	id: string;
@@ -29,6 +30,7 @@ interface SearchDialogProps<TItem extends SearchDialogItem> {
 	excludePattern: string;
 	onExcludePatternChange: (value: string) => void;
 	emptyMessage: string;
+	isLoading: boolean;
 	results: TItem[];
 	getItemValue: (item: TItem) => string;
 	onSelectItem: (item: TItem) => void;
@@ -50,6 +52,7 @@ export function SearchDialog<TItem extends SearchDialogItem>({
 	excludePattern,
 	onExcludePatternChange,
 	emptyMessage,
+	isLoading,
 	results,
 	getItemValue,
 	onSelectItem,
@@ -71,6 +74,11 @@ export function SearchDialog<TItem extends SearchDialogItem>({
 					className="pr-9"
 				/>
 				<div className="pointer-events-none absolute top-2 right-2 z-10">
+					{isLoading ? (
+						<div className="pointer-events-none absolute top-1 right-8">
+							<Spinner className="size-4 text-muted-foreground" />
+						</div>
+					) : null}
 					<Button
 						type="button"
 						variant="ghost"
@@ -81,9 +89,9 @@ export function SearchDialog<TItem extends SearchDialogItem>({
 						onClick={() => onFiltersOpenChange(!filtersOpen)}
 					>
 						{filtersOpen ? (
-							<LuChevronUp className="size-4" />
-						) : (
 							<LuChevronDown className="size-4" />
+						) : (
+							<LuChevronRight className="size-4" />
 						)}
 					</Button>
 				</div>
@@ -105,7 +113,7 @@ export function SearchDialog<TItem extends SearchDialogItem>({
 				</div>
 			) : null}
 			<CommandList>
-				{query.trim().length > 0 && results.length === 0 && (
+				{query.trim().length > 0 && !isLoading && results.length === 0 && (
 					<CommandEmpty>{emptyMessage}</CommandEmpty>
 				)}
 				{results.map((item) => (

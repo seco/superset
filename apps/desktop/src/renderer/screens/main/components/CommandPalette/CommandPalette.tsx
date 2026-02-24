@@ -23,6 +23,7 @@ interface CommandPaletteProps {
 	onIncludePatternChange: (value: string) => void;
 	excludePattern: string;
 	onExcludePatternChange: (value: string) => void;
+	isLoading: boolean;
 	searchResults: CommandPaletteResult[];
 	onSelectFile: (filePath: string) => void;
 }
@@ -38,6 +39,7 @@ export function CommandPalette({
 	onIncludePatternChange,
 	excludePattern,
 	onExcludePatternChange,
+	isLoading,
 	searchResults,
 	onSelectFile,
 }: CommandPaletteProps) {
@@ -57,6 +59,7 @@ export function CommandPalette({
 			excludePattern={excludePattern}
 			onExcludePatternChange={onExcludePatternChange}
 			emptyMessage="No files found."
+			isLoading={isLoading}
 			results={searchResults}
 			getItemValue={(file) => `${file.path} ${query}`}
 			onSelectItem={(file) => onSelectFile(file.relativePath)}

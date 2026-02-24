@@ -553,6 +553,7 @@ function WorkspacePage() {
 				onIncludePatternChange={commandPalette.setIncludePattern}
 				excludePattern={commandPalette.excludePattern}
 				onExcludePatternChange={commandPalette.setExcludePattern}
+				isLoading={commandPalette.isFetching}
 				searchResults={commandPalette.searchResults}
 				onSelectFile={commandPalette.selectFile}
 			/>
@@ -567,6 +568,7 @@ function WorkspacePage() {
 				onIncludePatternChange={keywordSearch.setIncludePattern}
 				excludePattern={keywordSearch.excludePattern}
 				onExcludePatternChange={keywordSearch.setExcludePattern}
+				isLoading={keywordSearch.isFetching}
 				searchResults={keywordSearch.searchResults}
 				onSelectMatch={keywordSearch.selectMatch}
 			/>

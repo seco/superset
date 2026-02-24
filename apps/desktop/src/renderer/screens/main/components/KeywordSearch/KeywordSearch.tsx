@@ -25,6 +25,7 @@ interface KeywordSearchProps {
 	onIncludePatternChange: (value: string) => void;
 	excludePattern: string;
 	onExcludePatternChange: (value: string) => void;
+	isLoading: boolean;
 	searchResults: KeywordSearchResult[];
 	onSelectMatch: (match: KeywordSearchResult) => void;
 }
@@ -90,6 +91,7 @@ export function KeywordSearch({
 	onIncludePatternChange,
 	excludePattern,
 	onExcludePatternChange,
+	isLoading,
 	searchResults,
 	onSelectMatch,
 }: KeywordSearchProps) {
@@ -109,6 +111,7 @@ export function KeywordSearch({
 			excludePattern={excludePattern}
 			onExcludePatternChange={onExcludePatternChange}
 			emptyMessage="No keyword matches found."
+			isLoading={isLoading}
 			results={searchResults}
 			getItemValue={(match) => `${match.id} ${query}`}
 			onSelectItem={onSelectMatch}
