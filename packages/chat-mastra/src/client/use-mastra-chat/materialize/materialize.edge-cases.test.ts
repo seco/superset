@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
-	materializeMastraChatState,
-	materializeMastraChatStateFromRows,
 	type MastraChatEventEnvelope,
 	type MastraChatEventRow,
+	materializeMastraChatState,
+	materializeMastraChatStateFromRows,
 } from "./index";
 
 const SESSION_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -220,7 +220,10 @@ describe("materializeMastraChatState edge cases", () => {
 	it("sets running=false and reason on agent_end", () => {
 		const state = materializeMastraChatState([
 			event({ sequenceHint: 0, payload: { type: "agent_start" } }),
-			event({ sequenceHint: 1, payload: { type: "agent_end", reason: "aborted" } }),
+			event({
+				sequenceHint: 1,
+				payload: { type: "agent_end", reason: "aborted" },
+			}),
 		]);
 		expect(state.isRunning).toBeFalse();
 		expect(state.lastAgentEndReason).toBe("aborted");
@@ -228,7 +231,10 @@ describe("materializeMastraChatState edge cases", () => {
 
 	it("keeps latest agent_end reason", () => {
 		const state = materializeMastraChatState([
-			event({ sequenceHint: 0, payload: { type: "agent_end", reason: "error" } }),
+			event({
+				sequenceHint: 0,
+				payload: { type: "agent_end", reason: "error" },
+			}),
 			event({
 				sequenceHint: 1,
 				payload: { type: "agent_end", reason: "complete" },
@@ -394,7 +400,10 @@ describe("materializeMastraChatState edge cases", () => {
 
 	it("ignores malformed usage_update payload", () => {
 		const state = materializeMastraChatState([
-			event({ sequenceHint: 0, payload: { type: "usage_update", usage: null } }),
+			event({
+				sequenceHint: 0,
+				payload: { type: "usage_update", usage: null },
+			}),
 		]);
 		expect(state.usage).toBeUndefined();
 	});
@@ -411,7 +420,10 @@ describe("materializeMastraChatState edge cases", () => {
 
 	it("falls back to payload.message for error message", () => {
 		const state = materializeMastraChatState([
-			event({ sequenceHint: 0, payload: { type: "error", message: "fallback" } }),
+			event({
+				sequenceHint: 0,
+				payload: { type: "error", message: "fallback" },
+			}),
 		]);
 		expect(state.errors[0]?.message).toBe("fallback");
 	});

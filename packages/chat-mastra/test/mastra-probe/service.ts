@@ -1,18 +1,18 @@
 import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import { type Context, Hono } from "hono";
 import { createMastraCode, type MastraCodeConfig } from "mastracode";
-import { Hono, type Context } from "hono";
 import {
 	approvalBodySchema,
 	controlBodySchema,
 	crashBodySchema,
 	logsQuerySchema,
+	type OpenSessionBody,
 	openSessionBodySchema,
 	planBodySchema,
 	questionBodySchema,
 	sendMessageBodySchema,
-	type OpenSessionBody,
 } from "./zod";
 
 interface SessionRuntime {
@@ -51,7 +51,9 @@ function normalizeBasePath(input: string | undefined): string {
 }
 
 function toMastraImages(
-	files: Array<{ url: string; mediaType: string; filename?: string }> | undefined,
+	files:
+		| Array<{ url: string; mediaType: string; filename?: string }>
+		| undefined,
 ): Array<{ data: string; mimeType: string }> {
 	if (!files || files.length === 0) return [];
 
@@ -141,9 +143,7 @@ export function createMastraProbeService({
 		});
 		sessionLocks.set(
 			sessionId,
-			previous
-				.catch(() => {})
-				.then(() => next),
+			previous.catch(() => {}).then(() => next),
 		);
 
 		try {
@@ -266,8 +266,12 @@ export function createMastraProbeService({
 				.filter((entry) => entry.isFile() && entry.name.endsWith(".ndjson"))
 				.map((entry) => path.join(perSessionLogDir, entry.name));
 
-			const records = await Promise.all(files.map((file) => readOneLogFile(file)));
-			return records.flat().sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+			const records = await Promise.all(
+				files.map((file) => readOneLogFile(file)),
+			);
+			return records
+				.flat()
+				.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
 		} catch (error) {
 			const code = (error as NodeJS.ErrnoException).code;
 			if (code === "ENOENT") return [];
@@ -343,8 +347,8 @@ export function createMastraProbeService({
 			const images = toMastraImages(parsed.data.files);
 			const runPromise = session.harness
 				.sendMessage({
-				content: parsed.data.content,
-				...(images.length > 0 ? { images } : {}),
+					content: parsed.data.content,
+					...(images.length > 0 ? { images } : {}),
 				})
 				.catch(async (error) => {
 					await appendSessionEvent(session, "service", {
@@ -409,7 +413,8 @@ export function createMastraProbeService({
 				data: parsed.data,
 			});
 			session.harness.respondToToolApproval({
-				decision: parsed.data.decision === "deny" ? "decline" : parsed.data.decision,
+				decision:
+					parsed.data.decision === "deny" ? "decline" : parsed.data.decision,
 			});
 			return c.json({ accepted: true });
 		});
@@ -474,7 +479,9 @@ export function createMastraProbeService({
 		}
 
 		const entries = await readLogEntries(parsed.data.sessionId);
-		const limited = entries.slice(Math.max(0, entries.length - parsed.data.limit));
+		const limited = entries.slice(
+			Math.max(0, entries.length - parsed.data.limit),
+		);
 
 		return c.json({
 			count: limited.length,

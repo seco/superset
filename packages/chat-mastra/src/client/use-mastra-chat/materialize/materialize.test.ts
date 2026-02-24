@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import {
-	materializeMastraDisplayState,
-	serializeMastraDisplayState,
-} from "./index";
-import {
 	loadFixtureExpectedOutput,
 	loadFixtureRecords,
 	toChatEnvelopes,
 } from "./fixtures/utils";
+import {
+	materializeMastraDisplayState,
+	serializeMastraDisplayState,
+} from "./index";
 
 const SCENARIOS = [
 	"basic-auth-error",

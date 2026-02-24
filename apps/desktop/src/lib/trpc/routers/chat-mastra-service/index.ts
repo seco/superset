@@ -1,6 +1,4 @@
-import {
-	createChatMastraServiceRouter as buildRouter,
-} from "@superset/chat-mastra/server/trpc";
+import { createChatMastraServiceRouter as buildRouter } from "@superset/chat-mastra/server/trpc";
 import { env } from "main/env.main";
 import { loadToken } from "../auth/utils/auth-functions";
 export const createChatMastraServiceRouter = () =>

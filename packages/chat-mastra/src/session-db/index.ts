@@ -1,10 +1,10 @@
 export {
-	createChatMastraSessionDB,
-	type ChatMastraSessionDB,
-	type ChatMastraSessionDBConfig,
-} from "./session-db";
-export {
-	chatMastraSessionStateSchema,
 	type ChatMastraEventRow,
 	type ChatMastraSessionStateSchema,
+	chatMastraSessionStateSchema,
 } from "./schema";
+export {
+	type ChatMastraSessionDB,
+	type ChatMastraSessionDBConfig,
+	createChatMastraSessionDB,
+} from "./session-db";

@@ -1,6 +1,4 @@
-import {
-	createChatMastraServiceClient,
-} from "@superset/chat-mastra/client";
+import { createChatMastraServiceClient } from "@superset/chat-mastra/client";
 import type { ChatMastraServiceRouter } from "@superset/chat-mastra/server/trpc";
 import type { TRPCLink } from "@trpc/client";
 import type { AnyRouter } from "@trpc/server";

@@ -6,11 +6,11 @@ export const openSessionBodySchema = z.object({
 	config: z
 		.object({
 			storage: z
-			.object({
-				url: z.string(),
-				authToken: z.string().optional(),
-			})
-			.optional(),
+				.object({
+					url: z.string(),
+					authToken: z.string().optional(),
+				})
+				.optional(),
 			initialState: z.record(z.string(), z.unknown()).optional(),
 			disableMcp: z.boolean().optional(),
 			disableHooks: z.boolean().optional(),

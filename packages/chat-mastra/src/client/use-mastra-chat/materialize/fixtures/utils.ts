@@ -1,9 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type {
-	MastraChatEventEnvelope,
-} from "../types";
 import type { MastraDisplayStateSnapshot } from "../display-state";
+import type { MastraChatEventEnvelope } from "../types";
 
 export interface ProbeFixtureRecord {
 	timestamp: string;
@@ -21,7 +19,10 @@ export function loadFixtureRecords(
 	scenario: string,
 	variant = "default",
 ): ProbeFixtureRecord[] {
-	const fixturePath = path.join(fixtureVariantDir(scenario, variant), "events.ndjson");
+	const fixturePath = path.join(
+		fixtureVariantDir(scenario, variant),
+		"events.ndjson",
+	);
 	const lines = readFileSync(fixturePath, "utf8")
 		.split("\n")
 		.map((line) => line.trim())
@@ -34,8 +35,13 @@ export function loadFixtureExpectedOutput(
 	scenario: string,
 	variant = "default",
 ): MastraDisplayStateSnapshot {
-	const outputPath = path.join(fixtureVariantDir(scenario, variant), "output.json");
-	return JSON.parse(readFileSync(outputPath, "utf8")) as MastraDisplayStateSnapshot;
+	const outputPath = path.join(
+		fixtureVariantDir(scenario, variant),
+		"output.json",
+	);
+	return JSON.parse(
+		readFileSync(outputPath, "utf8"),
+	) as MastraDisplayStateSnapshot;
 }
 
 export function toChatEnvelopes(

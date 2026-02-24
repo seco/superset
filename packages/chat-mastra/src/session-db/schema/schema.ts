@@ -1,7 +1,7 @@
 import { createStateSchema } from "@durable-streams/state";
 import {
-	chatMastraEnvelopeSchema,
 	type ChatMastraEnvelope,
+	chatMastraEnvelopeSchema,
 } from "../../schema";
 
 export const chatMastraSessionStateSchema = createStateSchema({

@@ -1,3 +1,4 @@
+import { chatServiceTrpc } from "@superset/chat/client";
 import { useMastraChatDisplay } from "@superset/chat-mastra/client";
 import {
 	type PromptInputMessage,
@@ -5,14 +6,16 @@ import {
 } from "@superset/ui/ai-elements/prompt-input";
 import { useQuery } from "@tanstack/react-query";
 import type { ChatStatus, UIMessage } from "ai";
-import { chatServiceTrpc } from "@superset/chat/client";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiTrpcClient } from "renderer/lib/api-trpc-client";
 import { ChatInputFooter } from "../../ChatPane/ChatInterface/components/ChatInputFooter";
 import { MessageList } from "../../ChatPane/ChatInterface/components/MessageList";
 import type { SlashCommand } from "../../ChatPane/ChatInterface/hooks/useSlashCommands";
-import type { ModelOption, PermissionMode } from "../../ChatPane/ChatInterface/types";
+import type {
+	ModelOption,
+	PermissionMode,
+} from "../../ChatPane/ChatInterface/types";
 import type { ChatMastraInterfaceProps } from "./types";
 
 function useAvailableModels(): {
@@ -40,7 +43,8 @@ function messageTextFromDisplay(currentMessage: {
 }): string {
 	return currentMessage.content
 		.map((part) => {
-			if (part.type === "text" && typeof part.text === "string") return part.text;
+			if (part.type === "text" && typeof part.text === "string")
+				return part.text;
 			if (part.type === "thinking" && typeof part.thinking === "string") {
 				return part.thinking;
 			}

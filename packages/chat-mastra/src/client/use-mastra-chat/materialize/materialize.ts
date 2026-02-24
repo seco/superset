@@ -189,8 +189,7 @@ export function materializeMastraChatState(
 			if (!messageObj) continue;
 
 			const id =
-				asString(messageObj.id) ??
-				`assistant-${event.timestamp}-${index}`;
+				asString(messageObj.id) ?? `assistant-${event.timestamp}-${index}`;
 			const role = asString(messageObj.role);
 			const createdAt = asString(messageObj.createdAt) ?? event.timestamp;
 			const status = payloadType === "message_end" ? "complete" : "streaming";

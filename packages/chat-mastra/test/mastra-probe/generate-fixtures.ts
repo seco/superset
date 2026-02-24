@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import type { MastraChatEventEnvelope } from "../../src/client/use-mastra-chat/materialize";
 import {
 	materializeMastraDisplayState,
 	serializeMastraDisplayState,
 } from "../../src/client/use-mastra-chat/materialize";
-import type { MastraChatEventEnvelope } from "../../src/client/use-mastra-chat/materialize";
 import { createMastraProbeService } from "./service";
 
 interface ProbeLogRecord {
@@ -75,7 +75,9 @@ async function writeFixture(
 	await fs.mkdir(targetDir, { recursive: true });
 	const eventsPath = path.join(targetDir, "events.ndjson");
 	const candidateOutputPath = path.join(targetDir, "output.candidate.json");
-	const eventsNdjson = records.map((record) => JSON.stringify(record)).join("\n");
+	const eventsNdjson = records
+		.map((record) => JSON.stringify(record))
+		.join("\n");
 	await fs.writeFile(eventsPath, `${eventsNdjson}\n`, "utf8");
 
 	// Non-authoritative helper for review only.
@@ -119,28 +121,20 @@ async function openSession(
 	sessionId: string,
 	config?: OpenSessionConfig,
 ): Promise<void> {
-	await callJson(
-		appFetch,
-		`${routeBase}/sessions/open`,
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ sessionId, ...(config ? { config } : {}) }),
-		},
-	);
+	await callJson(appFetch, `${routeBase}/sessions/open`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ sessionId, ...(config ? { config } : {}) }),
+	});
 }
 
 async function closeSession(
 	appFetch: typeof fetch,
 	sessionId: string,
 ): Promise<void> {
-	await callJson(
-		appFetch,
-		`${routeBase}/sessions/${sessionId}/close`,
-		{
-			method: "POST",
-		},
-	);
+	await callJson(appFetch, `${routeBase}/sessions/${sessionId}/close`, {
+		method: "POST",
+	});
 }
 
 async function sendMessage(
@@ -157,15 +151,11 @@ async function sendMessage(
 		clientMessageId?: string;
 	},
 ): Promise<void> {
-	await callJson(
-		appFetch,
-		`${routeBase}/sessions/${sessionId}/message`,
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify(input),
-		},
-	);
+	await callJson(appFetch, `${routeBase}/sessions/${sessionId}/message`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(input),
+	});
 }
 
 async function control(
@@ -173,15 +163,11 @@ async function control(
 	sessionId: string,
 	action: "stop" | "abort",
 ): Promise<void> {
-	await callJson(
-		appFetch,
-		`${routeBase}/sessions/${sessionId}/control`,
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({ action }),
-		},
-	);
+	await callJson(appFetch, `${routeBase}/sessions/${sessionId}/control`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({ action }),
+	});
 }
 
 async function approvalRespond(
@@ -189,18 +175,14 @@ async function approvalRespond(
 	sessionId: string,
 	toolCallId?: string,
 ): Promise<void> {
-	await callJson(
-		appFetch,
-		`${routeBase}/sessions/${sessionId}/approval`,
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				decision: "approve",
-				toolCallId,
-			}),
-		},
-	);
+	await callJson(appFetch, `${routeBase}/sessions/${sessionId}/approval`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			decision: "approve",
+			toolCallId,
+		}),
+	});
 }
 
 async function questionRespond(
@@ -208,18 +190,14 @@ async function questionRespond(
 	sessionId: string,
 	questionId: string,
 ): Promise<void> {
-	await callJson(
-		appFetch,
-		`${routeBase}/sessions/${sessionId}/question`,
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				questionId,
-				answer: "fixture-answer",
-			}),
-		},
-	);
+	await callJson(appFetch, `${routeBase}/sessions/${sessionId}/question`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			questionId,
+			answer: "fixture-answer",
+		}),
+	});
 }
 
 async function planRespond(
@@ -227,19 +205,15 @@ async function planRespond(
 	sessionId: string,
 	planId: string,
 ): Promise<void> {
-	await callJson(
-		appFetch,
-		`${routeBase}/sessions/${sessionId}/plan`,
-		{
-			method: "POST",
-			headers: { "Content-Type": "application/json" },
-			body: JSON.stringify({
-				planId,
-				action: "reject",
-				feedback: "fixture-feedback",
-			}),
-		},
-	);
+	await callJson(appFetch, `${routeBase}/sessions/${sessionId}/plan`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify({
+			planId,
+			action: "reject",
+			feedback: "fixture-feedback",
+		}),
+	});
 }
 
 function findHarnessEventsByType(
@@ -278,11 +252,15 @@ async function waitForHarnessEvent(
 	}
 
 	const entries = await readSessionEntries(appFetch, sessionId);
-	const seenTypes = [...new Set(
-		entries
-			.filter((record) => record.channel === "harness")
-			.map((record) => asString(asObject(record.payload)?.type) ?? "<missing>"),
-	)].sort();
+	const seenTypes = [
+		...new Set(
+			entries
+				.filter((record) => record.channel === "harness")
+				.map(
+					(record) => asString(asObject(record.payload)?.type) ?? "<missing>",
+				),
+		),
+	].sort();
 	throw new Error(
 		`Timed out waiting for ${eventType} on session ${sessionId}. Seen: ${seenTypes.join(", ")}`,
 	);
@@ -330,7 +308,11 @@ async function captureAskQuestionFixture(
 		content:
 			"Before any analysis, call the ask_user tool with a multiple-choice question that has options A and B.",
 	});
-	const askEvent = await waitForHarnessEvent(appFetch, sessionId, "ask_question");
+	const askEvent = await waitForHarnessEvent(
+		appFetch,
+		sessionId,
+		"ask_question",
+	);
 	const questionId = asString(asObject(askEvent.payload)?.questionId);
 	if (!questionId) {
 		throw new Error(`ask_question emitted without questionId for ${sessionId}`);
@@ -356,7 +338,9 @@ async function capturePlanApprovalFixture(
 	);
 	const planId = asString(asObject(planEvent.payload)?.planId);
 	if (!planId) {
-		throw new Error(`plan_approval_required emitted without planId for ${sessionId}`);
+		throw new Error(
+			`plan_approval_required emitted without planId for ${sessionId}`,
+		);
 	}
 	await planRespond(appFetch, sessionId, planId);
 	await waitForHarnessEvent(appFetch, sessionId, "agent_end", { minCount: 2 });
@@ -391,8 +375,16 @@ async function main(): Promise<void> {
 			content: "Try to run a task that might ask for approval",
 		});
 		await waitForHarnessEvent(appFetch, SESSION_APPROVAL_SUBMIT, "agent_end");
-		await approvalRespond(appFetch, SESSION_APPROVAL_SUBMIT, "fixture-tool-call");
-		await questionRespond(appFetch, SESSION_APPROVAL_SUBMIT, "fixture-question");
+		await approvalRespond(
+			appFetch,
+			SESSION_APPROVAL_SUBMIT,
+			"fixture-tool-call",
+		);
+		await questionRespond(
+			appFetch,
+			SESSION_APPROVAL_SUBMIT,
+			"fixture-question",
+		);
 		await planRespond(appFetch, SESSION_APPROVAL_SUBMIT, "fixture-plan");
 		await closeSession(appFetch, SESSION_APPROVAL_SUBMIT);
 

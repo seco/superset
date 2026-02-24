@@ -1,6 +1,6 @@
+import { skipToken } from "@tanstack/react-query";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { skipToken } from "@tanstack/react-query";
 import type { ChatMastraServiceRouter } from "../../server/trpc";
 import { chatMastraServiceTrpc } from "../provider";
 
@@ -46,7 +46,8 @@ export function useMastraChatDisplay(options: UseMastraChatDisplayOptions) {
 	const startMutation = chatMastraServiceTrpc.start.useMutation();
 	const ensureRuntimeMutation =
 		chatMastraServiceTrpc.session.ensureRuntime.useMutation();
-	const sendMessageMutation = chatMastraServiceTrpc.session.sendMessage.useMutation();
+	const sendMessageMutation =
+		chatMastraServiceTrpc.session.sendMessage.useMutation();
 	const controlMutation = chatMastraServiceTrpc.session.control.useMutation();
 	const approvalMutation =
 		chatMastraServiceTrpc.session.approval.respond.useMutation();
@@ -150,7 +151,10 @@ export function useMastraChatDisplay(options: UseMastraChatDisplayOptions) {
 			input: Omit<SessionInputs["approval"]["respond"], "sessionId">,
 		): Promise<{ accepted: boolean }> => {
 			if (!sessionId) return { accepted: false };
-			const result = await approvalMutation.mutateAsync({ sessionId, ...input });
+			const result = await approvalMutation.mutateAsync({
+				sessionId,
+				...input,
+			});
 			void displayQuery.refetch();
 			return result;
 		},
@@ -162,7 +166,10 @@ export function useMastraChatDisplay(options: UseMastraChatDisplayOptions) {
 			input: Omit<SessionInputs["question"]["respond"], "sessionId">,
 		): Promise<{ accepted: boolean }> => {
 			if (!sessionId) return { accepted: false };
-			const result = await questionMutation.mutateAsync({ sessionId, ...input });
+			const result = await questionMutation.mutateAsync({
+				sessionId,
+				...input,
+			});
 			void displayQuery.refetch();
 			return result;
 		},

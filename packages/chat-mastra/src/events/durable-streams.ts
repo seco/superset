@@ -101,14 +101,10 @@ export function createSessionStreamProducer(
 		fetch: fetchWithAuth as typeof fetch,
 	});
 
-	return new IdempotentProducer(
-		durableStream,
-		sessionId,
-		{
-			autoClaim: true,
-			lingerMs: 100,
-			maxInFlight: 50,
-			fetch: fetchWithAuth as typeof fetch,
-		},
-	);
+	return new IdempotentProducer(durableStream, sessionId, {
+		autoClaim: true,
+		lingerMs: 100,
+		maxInFlight: 50,
+		fetch: fetchWithAuth as typeof fetch,
+	});
 }

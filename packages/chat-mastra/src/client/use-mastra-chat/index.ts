@@ -1,15 +1,14 @@
+export type {
+	MastraChatEventEnvelope,
+	MastraChatEventRow,
+	MastraChatMaterializedState,
+} from "./materialize";
 export {
 	materializeMastraChatState,
 	materializeMastraChatStateFromRows,
 	materializeMastraDisplayState,
 	materializeMastraDisplayStateFromRows,
 	serializeMastraDisplayState,
-} from "./materialize";
-export { useMastraDisplayState } from "./use-mastra-display-state";
-export type {
-	MastraChatEventEnvelope,
-	MastraChatEventRow,
-	MastraChatMaterializedState,
 } from "./materialize";
 export type {
 	ActiveSubagentState,
@@ -37,3 +36,4 @@ export type {
 	UseMastraDisplayStateOptions,
 	UseMastraDisplayStateReturn,
 } from "./types";
+export { useMastraDisplayState } from "./use-mastra-display-state";

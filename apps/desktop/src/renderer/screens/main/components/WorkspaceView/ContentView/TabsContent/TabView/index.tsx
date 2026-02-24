@@ -20,8 +20,8 @@ import {
 } from "renderer/stores/tabs/utils";
 import { useTheme } from "renderer/stores/theme";
 import { BrowserPane } from "./BrowserPane";
-import { ChatPane } from "./ChatPane";
 import { ChatMastraPane } from "./ChatMastraPane";
+import { ChatPane } from "./ChatPane";
 import { DevToolsPane } from "./DevToolsPane";
 import { FileViewerPane } from "./FileViewerPane";
 import { TabPane } from "./TabPane";

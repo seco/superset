@@ -94,14 +94,11 @@ export function SessionSelector({
 													"Are you sure you want to delete this session?",
 												confirmText: "Delete",
 												onConfirm: () => {
-													toast.promise(
-														onDeleteSession(session.sessionId),
-														{
-															loading: "Deleting session...",
-															success: "Session deleted",
-															error: "Failed to delete session",
-														},
-													);
+													toast.promise(onDeleteSession(session.sessionId), {
+														loading: "Deleting session...",
+														success: "Session deleted",
+														error: "Failed to delete session",
+													});
 												},
 											});
 										}}

@@ -1,16 +1,16 @@
-import { ChatMastraServiceProvider } from "@superset/chat-mastra/client";
 import { ChatServiceProvider } from "@superset/chat/client";
+import { ChatMastraServiceProvider } from "@superset/chat-mastra/client";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { MosaicBranch } from "react-mosaic-component";
+import { authClient } from "renderer/lib/auth-client";
 import { electronTrpc } from "renderer/lib/electron-trpc";
 import { electronQueryClient } from "renderer/providers/ElectronTRPCProvider";
-import { authClient } from "renderer/lib/auth-client";
 import { useTabsStore } from "renderer/stores/tabs/store";
+import { createChatServiceIpcClient } from "../ChatPane/utils/chat-service-client";
 import { BasePaneWindow, PaneToolbarActions } from "../components";
 import { ChatMastraInterface } from "./ChatMastraInterface";
 import { SessionSelector } from "./components/SessionSelector";
 import { createChatMastraServiceIpcClient } from "./utils/chat-mastra-service-client";
-import { createChatServiceIpcClient } from "../ChatPane/utils/chat-service-client";
 
 const mastraIpcClient = createChatMastraServiceIpcClient();
 const legacyChatIpcClient = createChatServiceIpcClient();
@@ -68,10 +68,11 @@ export function ChatMastraPane({
 		{ enabled: Boolean(workspaceId) },
 	);
 
-	const { data: sessions = [] } = electronTrpc.chatMastraService.session.list.useQuery(
-		{ workspaceId },
-		{ enabled: Boolean(workspaceId) },
-	);
+	const { data: sessions = [] } =
+		electronTrpc.chatMastraService.session.list.useQuery(
+			{ workspaceId },
+			{ enabled: Boolean(workspaceId) },
+		);
 
 	const createSessionMutation =
 		electronTrpc.chatMastraService.session.create.useMutation();

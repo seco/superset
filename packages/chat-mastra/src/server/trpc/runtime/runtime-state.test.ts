@@ -42,7 +42,11 @@ interface MockHarness {
 	}) => Promise<void>;
 	getDisplayState: () => {
 		isRunning: boolean;
-		tokenUsage: { promptTokens: number; completionTokens: number; totalTokens: number };
+		tokenUsage: {
+			promptTokens: number;
+			completionTokens: number;
+			totalTokens: number;
+		};
 	};
 	subscribe: (listener: (event: MockHarnessEvent) => void) => () => void;
 	emit: (event: MockHarnessEvent) => void;
@@ -195,12 +199,16 @@ function readEnvelopes(sessionId: string): Array<{
 	return (streamAppends.get(sessionId) ?? [])
 		.map((entry) => JSON.parse(entry) as { value?: unknown })
 		.map((entry) => entry.value)
-		.filter((entry): entry is {
-			kind: string;
-			sessionId: string;
-			sequenceHint: number;
-			payload: unknown;
-		} => Boolean(entry));
+		.filter(
+			(
+				entry,
+			): entry is {
+				kind: string;
+				sessionId: string;
+				sequenceHint: number;
+				payload: unknown;
+			} => Boolean(entry),
+		);
 }
 
 function getHarnessForSession(sessionId: string): MockHarness {
@@ -286,7 +294,9 @@ describe("runtime-state", () => {
 			},
 		});
 		expect(envelopes[1]?.kind).toBe("harness");
-		expect((envelopes[1]?.payload as { type: string }).type).toBe("agent_start");
+		expect((envelopes[1]?.payload as { type: string }).type).toBe(
+			"agent_start",
+		);
 		expect(envelopes.map((entry) => entry.sequenceHint)).toEqual(
 			Array.from({ length: envelopes.length }, (_, index) => index),
 		);
@@ -308,7 +318,9 @@ describe("runtime-state", () => {
 
 		const submitEvents = readEnvelopes(sessionA)
 			.filter((entry) => entry.kind === "submit")
-			.map((entry) => entry.payload as { type: string; data: { content: string } });
+			.map(
+				(entry) => entry.payload as { type: string; data: { content: string } },
+			);
 
 		expect(submitEvents.map((entry) => entry.data.content)).toEqual([
 			"first",
@@ -328,12 +340,8 @@ describe("runtime-state", () => {
 
 		expect(eventsA.length).toBeGreaterThan(0);
 		expect(eventsB.length).toBeGreaterThan(0);
-		expect(
-			eventsA.every((event) => event.sessionId === sessionA),
-		).toBeTrue();
-		expect(
-			eventsB.every((event) => event.sessionId === sessionB),
-		).toBeTrue();
+		expect(eventsA.every((event) => event.sessionId === sessionA)).toBeTrue();
+		expect(eventsB.every((event) => event.sessionId === sessionB)).toBeTrue();
 	});
 
 	it("writes submit events for control/approval/question/plan and calls harness handlers", async () => {

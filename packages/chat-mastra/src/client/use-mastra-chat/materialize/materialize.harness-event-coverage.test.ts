@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
-import path from "node:path";
 import { createRequire } from "node:module";
+import path from "node:path";
 import { loadFixtureRecords } from "./fixtures/utils";
 
 const HARNESS_EVENT_CLASSIFICATION: Record<string, "handled" | "auxiliary"> = {
@@ -142,6 +142,8 @@ describe("harness event coverage contract", () => {
 
 		expect(userSubmitEvents.length).toBeGreaterThan(0);
 		expect(harnessMessageRoles.length).toBeGreaterThan(0);
-		expect(harnessMessageRoles.every((role) => role === "assistant")).toBeTrue();
+		expect(
+			harnessMessageRoles.every((role) => role === "assistant"),
+		).toBeTrue();
 	});
 });

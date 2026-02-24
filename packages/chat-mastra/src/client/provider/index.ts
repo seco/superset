@@ -1,11 +1,11 @@
 export {
-	ChatMastraServiceProvider,
-	type ChatMastraServiceClient,
-	chatMastraServiceTrpc,
-} from "./provider";
-export {
-	createChatMastraServiceClient,
-	createChatMastraServiceHttpClient,
 	type CreateChatMastraServiceClientOptions,
 	type CreateChatMastraServiceHttpClientOptions,
+	createChatMastraServiceClient,
+	createChatMastraServiceHttpClient,
 } from "./client";
+export {
+	type ChatMastraServiceClient,
+	ChatMastraServiceProvider,
+	chatMastraServiceTrpc,
+} from "./provider";

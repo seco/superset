@@ -8,7 +8,11 @@ import type {
 	PendingQuestionState,
 	TaskState,
 } from "../types";
-import type { MastraChatEventEnvelope, MastraChatEventRow, MastraChatMessage } from "./types";
+import type {
+	MastraChatEventEnvelope,
+	MastraChatEventRow,
+	MastraChatMessage,
+} from "./types";
 
 export interface MastraDisplayStateSnapshot {
 	isRunning: boolean;
@@ -27,7 +31,10 @@ export interface MastraDisplayStateSnapshot {
 	omProgress: MastraDisplayStateContract["omProgress"];
 	bufferingMessages: boolean;
 	bufferingObservations: boolean;
-	modifiedFiles: Record<string, { operations: string[]; firstModified: string }>;
+	modifiedFiles: Record<
+		string,
+		{ operations: string[]; firstModified: string }
+	>;
 	tasks: TaskState[];
 	previousTasks: TaskState[];
 }
@@ -116,7 +123,10 @@ function extractMessageText(message: Record<string, unknown>): string {
 	return parts.join("");
 }
 
-function parseMessage(messageValue: unknown, fallbackTimestamp: string): MastraChatMessage | null {
+function parseMessage(
+	messageValue: unknown,
+	fallbackTimestamp: string,
+): MastraChatMessage | null {
 	const message = asObject(messageValue);
 	if (!message) return null;
 
@@ -146,7 +156,11 @@ function parseTaskList(value: unknown): TaskState[] {
 		const status = asString(obj.status);
 		const activeForm = asString(obj.activeForm);
 		if (!content || !activeForm) continue;
-		if (status !== "pending" && status !== "in_progress" && status !== "completed") {
+		if (
+			status !== "pending" &&
+			status !== "in_progress" &&
+			status !== "completed"
+		) {
 			continue;
 		}
 		tasks.push({ content, status, activeForm });
@@ -271,7 +285,8 @@ export function materializeMastraDisplayState(
 				const usage = asObject(payload.usage);
 				if (!usage) break;
 				state.tokenUsage.promptTokens += asNumber(usage.promptTokens) ?? 0;
-				state.tokenUsage.completionTokens += asNumber(usage.completionTokens) ?? 0;
+				state.tokenUsage.completionTokens +=
+					asNumber(usage.completionTokens) ?? 0;
 				state.tokenUsage.totalTokens += asNumber(usage.totalTokens) ?? 0;
 				break;
 			}
@@ -295,11 +310,10 @@ export function materializeMastraDisplayState(
 				const toolCallId = asString(payload.toolCallId);
 				if (!toolCallId) break;
 				const argsTextDelta = asString(payload.argsTextDelta) ?? "";
-				const existing =
-					state.toolInputBuffers.get(toolCallId) ?? {
-						text: "",
-						toolName: "unknown_tool",
-					};
+				const existing = state.toolInputBuffers.get(toolCallId) ?? {
+					text: "",
+					toolName: "unknown_tool",
+				};
 				const nextText = existing.text + argsTextDelta;
 				state.toolInputBuffers.set(toolCallId, {
 					text: nextText,
@@ -379,7 +393,9 @@ export function materializeMastraDisplayState(
 										description: asString(opt.description),
 									};
 								})
-								.filter((option): option is NonNullable<typeof option> => Boolean(option))
+								.filter((option): option is NonNullable<typeof option> =>
+									Boolean(option),
+								)
 						: undefined,
 				};
 				break;
@@ -462,7 +478,8 @@ export function materializeMastraDisplayState(
 				const pendingTokens = asNumber(activeMessages?.tokens) ?? 0;
 				const threshold = asNumber(activeMessages?.threshold) ?? 0;
 				const observationTokens = asNumber(activeObservations?.tokens) ?? 0;
-				const reflectionThreshold = asNumber(activeObservations?.threshold) ?? 0;
+				const reflectionThreshold =
+					asNumber(activeObservations?.threshold) ?? 0;
 				state.omProgress.pendingTokens = pendingTokens;
 				state.omProgress.threshold = threshold;
 				state.omProgress.thresholdPercent =
@@ -478,26 +495,33 @@ export function materializeMastraDisplayState(
 						status:
 							asString(bufferedObservations?.status) === "running" ||
 							asString(bufferedObservations?.status) === "complete"
-								? (asString(bufferedObservations?.status) as "running" | "complete")
+								? (asString(bufferedObservations?.status) as
+										| "running"
+										| "complete")
 								: "idle",
 						chunks: asNumber(bufferedObservations?.chunks) ?? 0,
 						messageTokens: asNumber(bufferedObservations?.messageTokens) ?? 0,
 						projectedMessageRemoval:
 							asNumber(bufferedObservations?.projectedMessageRemoval) ?? 0,
-						observationTokens: asNumber(bufferedObservations?.observationTokens) ?? 0,
+						observationTokens:
+							asNumber(bufferedObservations?.observationTokens) ?? 0,
 					},
 					reflection: {
 						status:
 							asString(bufferedReflection?.status) === "running" ||
 							asString(bufferedReflection?.status) === "complete"
-								? (asString(bufferedReflection?.status) as "running" | "complete")
+								? (asString(bufferedReflection?.status) as
+										| "running"
+										| "complete")
 								: "idle",
 						inputObservationTokens:
 							asNumber(bufferedReflection?.inputObservationTokens) ?? 0,
-						observationTokens: asNumber(bufferedReflection?.observationTokens) ?? 0,
+						observationTokens:
+							asNumber(bufferedReflection?.observationTokens) ?? 0,
 					},
 				};
-				state.omProgress.generationCount = asNumber(payload.generationCount) ?? 0;
+				state.omProgress.generationCount =
+					asNumber(payload.generationCount) ?? 0;
 				state.omProgress.stepNumber = asNumber(payload.stepNumber) ?? 0;
 				state.bufferingMessages =
 					state.omProgress.buffered.observations.status === "running";
@@ -513,7 +537,8 @@ export function materializeMastraDisplayState(
 				state.omProgress.status = "idle";
 				state.omProgress.cycleId = undefined;
 				state.omProgress.observationTokens =
-					asNumber(payload.observationTokens) ?? state.omProgress.observationTokens;
+					asNumber(payload.observationTokens) ??
+					state.omProgress.observationTokens;
 				state.omProgress.pendingTokens = 0;
 				state.omProgress.thresholdPercent = 0;
 				break;

@@ -1,10 +1,10 @@
-import { createHash } from "node:crypto";
 import { describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
 import {
-	materializeMastraChatState,
-	materializeMastraChatStateFromRows,
 	type MastraChatEventEnvelope,
 	type MastraChatEventRow,
+	materializeMastraChatState,
+	materializeMastraChatStateFromRows,
 } from "./index";
 
 const SESSION_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
@@ -136,7 +136,10 @@ describe("materializeMastraChatState replay + failure safety", () => {
 				sequenceHint: 21,
 				payload: { type: "control_submitted", data: { action: "abort" } },
 			}),
-			event({ sequenceHint: 2, payload: { type: "agent_end", reason: "aborted" } }),
+			event({
+				sequenceHint: 2,
+				payload: { type: "agent_end", reason: "aborted" },
+			}),
 		]);
 
 		expect(state.sequenceResetCount).toBe(1);
@@ -198,14 +201,20 @@ describe("materializeMastraChatState replay + failure safety", () => {
 				sequenceHint: 6,
 				payload: { type: "control_submitted", data: { action: "abort" } },
 			}),
-			event({ sequenceHint: 1, payload: { type: "agent_end", reason: "aborted" } }),
+			event({
+				sequenceHint: 1,
+				payload: { type: "agent_end", reason: "aborted" },
+			}),
 			event({
 				kind: "submit",
 				sequenceHint: 2,
 				payload: { type: "control_submitted", data: { action: "abort" } },
 			}),
 			event({ sequenceHint: 7, payload: { type: "agent_start" } }),
-			event({ sequenceHint: 0, payload: { type: "agent_end", reason: "complete" } }),
+			event({
+				sequenceHint: 0,
+				payload: { type: "agent_end", reason: "complete" },
+			}),
 			event({
 				kind: "submit",
 				sequenceHint: 3,
@@ -215,7 +224,11 @@ describe("materializeMastraChatState replay + failure safety", () => {
 
 		expect(state.sequenceResetCount).toBe(2);
 		expect(state.epoch).toBe(3);
-		expect(state.controls.map((c) => c.wasRunning)).toEqual([true, false, false]);
+		expect(state.controls.map((c) => c.wasRunning)).toEqual([
+			true,
+			false,
+			false,
+		]);
 	});
 
 	it("MZ-MAT-601: malformed payload values are non-fatal and isolated", () => {

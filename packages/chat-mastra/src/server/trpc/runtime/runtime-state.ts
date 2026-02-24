@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { createMastraCode } from "mastracode";
 import {
+	type ChatMastraStreamsConfig,
 	createSessionStreamProducer,
 	ensureSessionStream,
-	type ChatMastraStreamsConfig,
 	type SessionStreamProducer,
 } from "../../../events/durable-streams";
 import type { ChatMastraEnvelope } from "../../../schema";
@@ -15,8 +15,8 @@ import type {
 	EnsureRuntimeInput,
 	PlanRespondInput,
 	QuestionRespondInput,
-	SessionIdInput,
 	SendMessageInput,
+	SessionIdInput,
 	WorkspaceIdInput,
 } from "../zod";
 
@@ -54,13 +54,17 @@ const sessions = new Map<string, ChatMastraSessionMetadata>();
 
 function getRuntimeConfig(): RuntimeConfig {
 	if (!runtimeConfig) {
-		throw new Error("Runtime config not set. Call configureRuntimeState() first.");
+		throw new Error(
+			"Runtime config not set. Call configureRuntimeState() first.",
+		);
 	}
 	return runtimeConfig;
 }
 
 function toMastraImages(
-	files: Array<{ url: string; mediaType: string; filename?: string }> | undefined,
+	files:
+		| Array<{ url: string; mediaType: string; filename?: string }>
+		| undefined,
 ): Array<{ data: string; mimeType: string }> {
 	if (!files || files.length === 0) return [];
 
@@ -168,9 +172,7 @@ async function withSessionCommandLock<T>(
 	});
 	commandTails.set(
 		sessionId,
-		previous
-			.catch(() => {})
-			.then(() => nextTail),
+		previous.catch(() => {}).then(() => nextTail),
 	);
 
 	try {
@@ -207,10 +209,14 @@ export function startRuntimeService(nextOrganizationId: string): void {
 export async function stopRuntimeService(): Promise<void> {
 	started = false;
 	organizationId = null;
-	await Promise.all([...runtimes.keys()].map((sessionId) => stopRuntime(sessionId)));
+	await Promise.all(
+		[...runtimes.keys()].map((sessionId) => stopRuntime(sessionId)),
+	);
 }
 
-export function createSession(input: CreateSessionInput): ChatMastraSessionMetadata {
+export function createSession(
+	input: CreateSessionInput,
+): ChatMastraSessionMetadata {
 	const sessionId = input.sessionId ?? randomUUID();
 	return upsertSession(sessionId, {
 		workspaceId: input.workspaceId,
@@ -239,9 +245,11 @@ export function hasRuntime(sessionId: string): boolean {
 	return runtimes.has(sessionId);
 }
 
-export function getDisplayState(
-	input: SessionIdInput,
-): { ready: boolean; displayState?: RuntimeDisplayState; reason?: string } {
+export function getDisplayState(input: SessionIdInput): {
+	ready: boolean;
+	displayState?: RuntimeDisplayState;
+	reason?: string;
+} {
 	const runtime = runtimes.get(input.sessionId);
 	if (!runtime) {
 		return {
@@ -293,7 +301,10 @@ export async function ensureRuntime(
 			upsertSession(input.sessionId, { workspaceId: input.workspaceId });
 		}
 
-		const producer = createSessionStreamProducer(config.streams, input.sessionId);
+		const producer = createSessionStreamProducer(
+			config.streams,
+			input.sessionId,
+		);
 		const cwd = input.cwd ?? process.cwd();
 		const runtimeMastra = await createMastraCode({ cwd });
 		await runtimeMastra.harness.init();
@@ -349,7 +360,9 @@ export async function sendMessage(
 	});
 }
 
-export async function control(input: ControlInput): Promise<{ accepted: boolean }> {
+export async function control(
+	input: ControlInput,
+): Promise<{ accepted: boolean }> {
 	return withSessionCommandLock(input.sessionId, async () => {
 		const runtime = runtimes.get(input.sessionId);
 		if (!runtime) return { accepted: false };

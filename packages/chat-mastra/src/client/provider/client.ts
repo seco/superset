@@ -2,8 +2,8 @@ import { httpBatchLink, type TRPCLink } from "@trpc/client";
 import superjson from "superjson";
 import type { ChatMastraServiceRouter } from "../../server/trpc";
 import {
-	chatMastraServiceTrpc,
 	type ChatMastraServiceClient,
+	chatMastraServiceTrpc,
 } from "./provider";
 
 export interface CreateChatMastraServiceClientOptions {
